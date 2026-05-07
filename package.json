@@ -1,9 +1,0 @@
-{
-  "name": "educa-fractalia",
-  "version": "0.4.0",
-  "description": "Sistema de Evaluación Metacognitiva en Resolución de Problemas Matemáticos — Educa Fractalia",
-  "scripts": {
-    "dev": "netlify dev"
-  },
-  "devDependencies": {}
-}
