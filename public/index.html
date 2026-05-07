@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Educa Fractalia · Sistema de Evaluación Metacognitiva</title>
+<meta name="description" content="Sistema de evaluación metacognitiva en resolución de problemas matemáticos para contextos de educación hospitalaria">
+
+<!-- Poppins: tipografía oficial Educa Fractalia -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" type="image/png" href="assets/isotipo.png">
+
+<!-- SheetJS para XLSX -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+
+<body>
+
+<div class="app">
+
+  <!-- ══════════════════ SIDEBAR ══════════════════ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <img class="brand-logo-img" src="assets/logo-white.png" alt="Educa Fractalia" />
+      <p class="brand-tagline">Laboratorio de Evaluación<br>e Investigación en educación matemática</p>
+    </div>
+
+    <div class="api-status" id="apiStatus">
+      <span id="apiStatusText">Verificando conexión IA…</span>
+    </div>
+
+    <nav class="nav-section">
+      <div class="nav-label">Fase activa</div>
+      <button class="nav-item active" data-view="modulo1"><span class="num">01</span>Carga de datos</button>
+      <button class="nav-item" data-view="modulo2"><span class="num">02</span>Evaluación con IA</button>
+      <button class="nav-item active" data-view="modulo3"><span class="num">03</span>Procesamiento Likert</button>
+    </nav>
+
+    <nav class="nav-section">
+      <div class="nav-label">Próximos módulos</div>
+      <button class="nav-item disabled"><span class="num">04</span>Tipología integrada</button>
+      <button class="nav-item disabled"><span class="num">05</span>Feedback formativo</button>
+      <button class="nav-item disabled"><span class="num">06</span>Gráficos</button>
+      <button class="nav-item disabled"><span class="num">07</span>Estadísticos I+D</button>
+    </nav>
+
+    <div class="sidebar-footer">
+      v0.3 · Módulo IA activo<br>
+      Concepción, Chile
+    </div>
+  </aside>
+
+  <!-- ══════════════════ MAIN ══════════════════ -->
+  <main class="main">
+
+    <!-- ────────── VISTA 1: CARGA + PROCESAMIENTO LIKERT ────────── -->
+    <section class="view active" id="view-modulo1">
+      <header class="page-header">
+        <div class="page-title-group">
+          <div class="eyebrow">Evaluación Metacognitiva · Resolución de Problemas</div>
+          <h1 class="page-title">Procesamiento <span class="accent">Likert</span></h1>
+          <p class="page-subtitle">Carga tu archivo de respuestas del formulario y obtén los puntajes normalizados por dimensión, listos para el análisis metacognitivo.</p>
+        </div>
+        <div class="page-meta">
+          <div class="label">Sesión</div>
+          <div class="value" id="sessionDate">—</div>
+        </div>
+      </header>
+
+      <div id="uploadSection">
+        <div class="upload-zone" id="dropZone">
+          <svg class="upload-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0L8.25 13.5M12 9.75l3.75 3.75M3 17.25V6.75a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 6.75v10.5a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 17.25z"/>
+          </svg>
+          <h2 class="upload-title">Arrastra o selecciona un archivo</h2>
+          <p class="upload-subtitle">Respuestas exportadas de Google Forms en <code>.xlsx</code> o <code>.csv</code></p>
+          <button class="btn btn-primary" id="uploadBtn">Seleccionar archivo</button>
+          <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display:none">
+          <div class="upload-hint">Detección automática de la estructura del instrumento de 12 ítems</div>
+        </div>
+
+        <div class="demo-link">
+          <button id="loadDemo">o bien, carga la muestra del pilotaje N=10 para ver el sistema en acción →</button>
+        </div>
+      </div>
+
+      <div id="results" style="display:none;">
+
+        <div class="validation-banner">
+          <div class="validation-icon">
+            <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <div class="validation-content">
+            <h4 id="validationTitle">Datos procesados correctamente</h4>
+            <p id="validationText">Cálculos validados según el marco metodológico del instrumento.</p>
+          </div>
+        </div>
+
+        <div class="summary-grid">
+          <div class="stat-card primary">
+            <div class="stat-label">Estudiantes</div>
+            <div class="stat-value" id="statN">—</div>
+            <div class="stat-hint">registros procesados</div>
+          </div>
+          <div class="stat-card secondary">
+            <div class="stat-label">Cursos</div>
+            <div class="stat-value" id="statCursos">—</div>
+            <div class="stat-hint">niveles representados</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Datos completos</div>
+            <div class="stat-value" id="statCompletos">—<span class="unit">%</span></div>
+            <div class="stat-hint">sin imputación requerida</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Rango de edad</div>
+            <div class="stat-value" id="statEdad">—</div>
+            <div class="stat-hint">años</div>
+          </div>
+        </div>
+
+        <section class="section">
+          <div class="section-header">
+            <h2 class="section-title">Promedios por dimensión</h2>
+            <div class="section-meta">media y desviación estándar · escala 1–4</div>
+          </div>
+
+          <div class="dimensions-grid" id="dimGrid"></div>
+
+          <div class="info-note">
+            <strong>Nota metodológica.</strong> Los puntajes Likert (rango bruto 3–9 por dimensión) se normalizan a escala 1–4 mediante la fórmula <code>N = 1 + 0.5·(suma − 3)</code>. El ítem "Las matemáticas son difíciles para mí" se puntúa invertido. Sistema de Creencias se calcula únicamente con Likert (sin preguntas abiertas), por decisión metodológica fundada.
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-header">
+            <h2 class="section-title">Puntajes individuales</h2>
+            <div class="section-meta">Likert normalizado · para integrar preguntas abiertas, ve al Módulo 02</div>
+          </div>
+
+          <div class="table-wrap">
+            <div class="table-header-row">
+              <h3>Por estudiante</h3>
+              <button class="btn btn-primary btn-sm" id="goToModulo2">Evaluar preguntas abiertas con IA →</button>
+            </div>
+
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nombre</th>
+                  <th>Curso · Edad</th>
+                  <th>Estadía</th>
+                  <th class="num">Recursos</th>
+                  <th class="num">Heurísticas</th>
+                  <th class="num">Control</th>
+                  <th class="num">Creencias</th>
+                </tr>
+              </thead>
+              <tbody id="studentRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ────────── VISTA 2: EVALUACIÓN CON IA ────────── -->
+    <section class="view" id="view-modulo2">
+      <header class="page-header">
+        <div class="page-title-group">
+          <div class="eyebrow">Módulo 02 · IA como juez ciego</div>
+          <h1 class="page-title">Evaluación de <span class="accent">preguntas abiertas</span></h1>
+          <p class="page-subtitle">La IA analiza el desarrollo matemático y las respuestas abiertas aplicando la rúbrica validada. Tú revisas y ajustas cada caso antes de confirmar.</p>
+        </div>
+        <div class="page-meta">
+          <div class="label">Cola</div>
+          <div class="value" id="queueStatus">—</div>
+        </div>
+      </header>
+
+      <!-- Estado sin datos -->
+      <div id="modulo2Empty">
+        <div class="upload-zone" style="cursor:default;">
+          <svg class="upload-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+          </svg>
+          <h2 class="upload-title">Primero carga los datos</h2>
+          <p class="upload-subtitle">Ve al Módulo 01 y sube el archivo de respuestas del formulario.</p>
+          <button class="btn btn-primary" data-nav="modulo1">Ir a Carga de datos</button>
+        </div>
+      </div>
+
+      <!-- Con datos cargados -->
+      <div id="modulo2Main" style="display:none;">
+
+        <div class="summary-grid">
+          <div class="stat-card primary">
+            <div class="stat-label">Total estudiantes</div>
+            <div class="stat-value" id="iaStatTotal">—</div>
+            <div class="stat-hint">en esta cohorte</div>
+          </div>
+          <div class="stat-card secondary">
+            <div class="stat-label">Pendientes</div>
+            <div class="stat-value" id="iaStatPending">—</div>
+            <div class="stat-hint">por evaluar</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Evaluados IA</div>
+            <div class="stat-value" id="iaStatEvaluated">—</div>
+            <div class="stat-hint">propuestas generadas</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Revisados</div>
+            <div class="stat-value" id="iaStatReviewed">—</div>
+            <div class="stat-hint">confirmados por ti</div>
+          </div>
+        </div>
+
+        <!-- Zona de carga de fotos del desarrollo -->
+        <section class="section">
+          <div class="section-header">
+            <h2 class="section-title">Fotos del desarrollo</h2>
+            <div class="section-meta">cargadas: <span id="photosLoaded">0</span> / <span id="photosTotal">0</span></div>
+          </div>
+
+          <div class="photo-upload-zone" id="photoDropZone">
+            <svg class="upload-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="width:40px;height:40px;margin-bottom:10px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"/>
+            </svg>
+            <h3 class="photo-upload-title">Arrastra las fotos aquí o selecciónalas</h3>
+            <p class="photo-upload-subtitle">El sistema asociará cada foto a su estudiante por nombre o ID. Puedes corregir manualmente si hace falta.</p>
+            <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:12px;">
+              <button class="btn btn-primary btn-sm" id="photoUploadBtn">📸 Seleccionar fotos</button>
+              <button class="btn btn-secondary btn-sm" id="clearPhotosBtn" style="display:none;">🗑️ Limpiar todas</button>
+            </div>
+            <input type="file" id="photoFileInput" accept="image/*" multiple style="display:none">
+            <div class="upload-hint" style="margin-top:14px;">
+              Convención sugerida: <code>S01.jpg</code>, <code>S02.jpg</code>... o <code>Nombre_Apellido.jpg</code>
+            </div>
+          </div>
+
+          <div id="photoGallery" class="photo-gallery" style="display:none;"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-header">
+            <h2 class="section-title">Cola de evaluación</h2>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button class="btn btn-secondary btn-sm" id="loadBiblioteca">📚 Ver biblioteca de criterios</button>
+              <button class="btn btn-primary btn-sm" id="evaluateAllBtn">⚡ Evaluar todos con IA</button>
+            </div>
+          </div>
+
+          <div class="info-note warning" id="iaWarning" style="display:none;">
+            <strong>Aviso:</strong> <span id="iaWarningText">La evaluación con IA consume créditos de la API de Anthropic. Costo aproximado: $0.02–0.04 USD por estudiante.</span>
+          </div>
+
+          <div class="table-wrap">
+            <div class="table-header-row">
+              <h3>Estudiantes por evaluar</h3>
+              <span class="hint">click sobre una fila para revisar individualmente</span>
+            </div>
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Nombre</th>
+                  <th class="center">Foto</th>
+                  <th class="center">P1 · Rec</th>
+                  <th class="center">P2 · Rec</th>
+                  <th class="center">P3a · Heu</th>
+                  <th class="center">P3b · Heu</th>
+                  <th class="center">P4 · Con</th>
+                  <th class="center">P5 · Con</th>
+                  <th class="center">Estado</th>
+                </tr>
+              </thead>
+              <tbody id="iaTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ────────── VISTA 3: Modulo 3 (procesamiento — ya incluido en módulo 1) ────────── -->
+    <section class="view" id="view-modulo3">
+      <header class="page-header">
+        <div class="page-title-group">
+          <div class="eyebrow">Módulo 03</div>
+          <h1 class="page-title">Procesamiento <span class="accent">Likert</span></h1>
+          <p class="page-subtitle">El procesamiento estadístico se ejecuta automáticamente al cargar los datos en el Módulo 01. Consulta los resultados ahí.</p>
+        </div>
+      </header>
+      <button class="btn btn-primary" data-nav="modulo1">Ver procesamiento en Módulo 01</button>
+    </section>
+
+  </main>
+</div>
+
+<!-- ══════════════════ MODAL DE EVALUACIÓN INDIVIDUAL ══════════════════ -->
+<div class="modal-backdrop" id="evalModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="modalTitle">Evaluación del estudiante</div>
+        <div class="modal-subtitle" id="modalSubtitle">—</div>
+      </div>
+      <button class="modal-close" id="modalClose">×</button>
+    </div>
+
+    <div class="modal-body" id="modalBody">
+      <!-- Contenido dinámico -->
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="modalCancel">Cerrar sin guardar</button>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-secondary" id="reEvaluateBtn">🔄 Reevaluar con IA</button>
+        <button class="btn btn-primary" id="confirmBtn">✓ Confirmar y siguiente</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ LOADING OVERLAY ══════════════════ -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner spinner-lg"></div>
+  <div class="loading-text" id="loadingText">Procesando…</div>
+  <div class="loading-substep" id="loadingSubstep">—</div>
+</div>
+
+<!-- ══════════════════ TOAST CONTAINER ══════════════════ -->
+<div id="toastContainer"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
