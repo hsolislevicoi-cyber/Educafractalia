@@ -143,11 +143,12 @@
   });
 
   function docente(uid) {
-    if (!cache.docente[uid]) cache.docente[uid] = { uid, scores: {}, comentarios: {}, feedback: null };
+    if (!cache.docente[uid]) cache.docente[uid] = { uid, scores: {}, comentarios: {}, feedback: null, evidencia: {}, hallazgos: '' };
     return cache.docente[uid];
   }
   function saveDocente(uid) {
     const d = docente(uid);
+    if (!d.evidencia) d.evidencia = {};
     d.updatedAt = new Date().toISOString();
     return idbPut('docente', d);
   }
@@ -491,6 +492,53 @@
     </div>`;
   }
 
+  /* ───────────────────────── Criterios de jueces ───────────────────────── */
+  const CJ = window.CriteriosJuez || { PROBLEMA: {}, REGLAS: [], RUBRICA: {}, INSUMOS: {}, COMENTARIOS_P1: [], EVIDENCIA_P3B: [] };
+  function operacionDeclarada(s) {
+    const txt = ((s.openAnswers || {}).p1 || '').toLowerCase();
+    const m = txt.match(/suma|adici[oó]n|resta|sustracci[oó]n|multiplicaci[oó]n|divisi[oó]n|ecuaci[oó]n/);
+    if (!m) return null;
+    const w = m[0];
+    return /adici|suma/.test(w) ? 'suma' : /sustra|resta/.test(w) ? 'resta' : /multip/.test(w) ? 'multiplicación' : /divis/.test(w) ? 'división' : 'ecuación';
+  }
+  function plantillasP1(s) {
+    const op = operacionDeclarada(s);
+    const ops = op ? (/ón$/.test(op) ? op.replace(/ón$/, 'ones') : op + 's') : 'las operaciones';
+    return CJ.COMENTARIOS_P1.map(t => op
+      ? t.replace('{una}', 'una ' + op).replace('{ops}', ops).replace('{op}', op)
+      : t.replace('{una}', 'la operación declarada').replace('{ops}', 'las operaciones declaradas').replace('{op}', 'la operación declarada'));
+  }
+  function bloqueCriterios(s, q, p, dcn) {
+    const rub = CJ.RUBRICA[q.dim];
+    const insumo = CJ.INSUMOS[q.key];
+    let extra = '';
+    if (q.key === 'P1') {
+      extra = `<div class="oq-chips"><span class="oq-src">Comentarios tipo del revisor (clic para insertar):</span>${plantillasP1(s).map((t, i) => `<button type="button" class="oq-chip" data-txt="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
+    }
+    if (q.key === 'P3b') {
+      const sel = (dcn.evidencia && dcn.evidencia.P3b) || [];
+      extra = `<div class="oq-chips"><span class="oq-src">Evidencia observable en el desarrollo:</span>${CJ.EVIDENCIA_P3B.map(e => `<label class="oq-check"><input type="checkbox" class="ev-chk" data-ev="${esc(e)}" ${sel.includes(e) ? 'checked' : ''}> ${esc(e)}</label>`).join('')}</div>`;
+    }
+    const niveles = rub ? [4, 3, 2, 1].map(n => `<div class="rub-row ${p && p.v === n ? 'sel' : ''}"><b>${n} · ${ESCUELA[n]}</b><span>${esc(rub[n])}</span></div>`).join('') : '';
+    return `<div class="oq-insumo"><b>Insumo para el puntaje:</b> ${esc(insumo || '')}</div>${extra}
+      ${rub ? `<details class="oq-rub"><summary>Ver rúbrica · ${esc(rub.titulo)}</summary>${niveles}</details>` : ''}`;
+  }
+  function bloqueProblema() {
+    const P = CJ.PROBLEMA;
+    if (!P.enunciado) return '';
+    return `<div class="pf-block"><div class="pf-title">Problema y criterios de revisión</div>
+      <details class="pf-card pf-prob"><summary>Ver problema y reglas de codificación</summary>
+        <div style="margin-top:8px;line-height:1.55;">“${esc(P.enunciado)}”</div>
+        <table class="pf-dims" style="margin-top:8px;"><tbody>
+          <tr><td>Respuesta correcta</td><td><b>${esc(P.respuesta)}</b></td></tr>
+          <tr><td>Complejidad</td><td>${esc(P.complejidad)}</td></tr>
+          <tr><td>Contenido</td><td>${esc(P.contenido)}</td></tr>
+          <tr><td>Rango de aplicación</td><td>${esc(P.rango)}</td></tr></tbody></table>
+        <div class="p4-mini" style="margin-top:8px;line-height:1.5;">${esc(P.descripcion)}</div>
+        <ul class="pf-reglas">${CJ.REGLAS.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+      </details></div>`;
+  }
+
   function renderPerfil() {
     const s = state.students.find(x => x.uid === currentUid);
     if (!s) return;
@@ -559,7 +607,8 @@
           ${p && p.origen !== 'docente' ? `<span class="oq-src">(tomado del ${p.origen})</span>` : ''}
         </div>
         ${propuestaIA(s, q)}
-        <textarea class="oq-comment" data-q="${q.key}" placeholder="Comentario del/la docente (opcional)">${esc((dcn.comentarios || {})[q.key] || '')}</textarea>
+        ${bloqueCriterios(s, q, p, dcn)}
+        <textarea class="oq-comment" data-q="${q.key}" placeholder="${q.visual ? 'Evidencia observada en el desarrollo (heurísticas)' : q.key === 'P1' ? 'Comentario del revisor: coherencia con el desarrollo' : 'Comentario del/la docente (opcional)'}">${esc((dcn.comentarios || {})[q.key] || '')}</textarea>
       </div>`;
     }).join('');
 
@@ -570,6 +619,7 @@
         <div class="pf-block"><div class="pf-title">Puntajes por dimensión (escala 1–4)</div>
           <table class="pf-dims"><thead><tr><th>Dimensión</th><th class="num">Likert</th><th class="num">Abiertas</th><th class="num">Final</th><th>Nivel</th></tr></thead><tbody>${dimRows}</tbody></table>
           <div class="p4-mini" style="margin-top:8px;line-height:1.5;">Final = promedio entre el Likert normalizado y el promedio de las preguntas abiertas. Sistema de Creencias se calcula solo con el Likert.</div></div>
+        ${bloqueProblema()}
         <div class="pf-block"><div class="pf-title">Desarrollo del problema</div>
           <div class="pf-images">${imgSlot('dibujo', 'Dibujo en tablet')}${imgSlot('foto', 'Foto del papel')}</div>
           <input type="file" id="pfImgInput" accept="image/*" style="display:none">
@@ -577,6 +627,8 @@
       </div>
       <div>
         <div class="pf-block"><div class="pf-title">Preguntas abiertas</div>${oqHTML}</div>
+        <div class="pf-block"><div class="pf-title">Hallazgos adicionales <span class="p4-mini">(descripción objetiva del/la estudiante)</span></div>
+          <textarea class="pf-feedback" id="pfHallazgos" style="min-height:90px;" placeholder="Anota todo hallazgo, sustentado en evidencia escrita, que describa objetivamente al/la estudiante según los criterios.">${esc(dcn.hallazgos || '')}</textarea></div>
         <div class="pf-block"><div class="pf-title">Retroalimentación formativa <span id="pfSaved" class="pf-saved"></span></div>
           <textarea class="pf-feedback" id="pfFeedback">${esc(feedbackDe(c))}</textarea>
           <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
@@ -602,6 +654,13 @@
         if (d.scores[q] === n) delete d.scores[q]; else d.scores[q] = n;
         renderPerfil();                                   // la pantalla responde de inmediato
         saveDocente(s.uid).then(flashSaved); return;
+      }
+      const chip = e.target.closest('.oq-chip');
+      if (chip) {
+        const q = chip.closest('.oq-card').dataset.q, d = docente(s.uid);
+        const cur = (d.comentarios[q] || '').trim();
+        d.comentarios[q] = cur ? cur + '. ' + chip.dataset.txt : chip.dataset.txt;
+        renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
       }
       const ia = e.target.closest('.oq-use-ia');
       if (ia) {
@@ -635,6 +694,13 @@
     });
     body.addEventListener('change', async e => {
       const s = state.students.find(x => x.uid === currentUid);
+      if (s && e.target.classList.contains('ev-chk')) {
+        const d = docente(s.uid); d.evidencia = d.evidencia || {};
+        const set = new Set(d.evidencia.P3b || []);
+        e.target.checked ? set.add(e.target.dataset.ev) : set.delete(e.target.dataset.ev);
+        d.evidencia.P3b = CJ.EVIDENCIA_P3B.filter(x => set.has(x));
+        saveDocente(s.uid).then(flashSaved); return;
+      }
       if (!s || e.target.id !== 'pfImgInput' || !imgTarget) return;
       const f = e.target.files[0]; if (!f) return;
       try {
@@ -651,6 +717,9 @@
       if (e.target.classList.contains('oq-comment')) {
         const q = e.target.dataset.q, d = docente(s.uid);
         d.comentarios[q] = e.target.value;
+        clearTimeout(t); t = setTimeout(async () => { await saveDocente(s.uid); flashSaved(); }, 500);
+      } else if (e.target.id === 'pfHallazgos') {
+        const d = docente(s.uid); d.hallazgos = e.target.value;
         clearTimeout(t); t = setTimeout(async () => { await saveDocente(s.uid); flashSaved(); }, 500);
       } else if (e.target.id === 'pfFeedback') {
         const d = docente(s.uid); d.feedback = e.target.value;
@@ -688,12 +757,13 @@
       perfil: { codigo: c.perfil, nombre: c.perfil ? PERFILES[c.perfil].nombre : null, provisorio: c.provisional, alternativos: c.alternativos, requiere_revision: c.revision, avisos: c.flags },
       preguntas_abiertas: PREGUNTAS.map(q => {
         const p = puntajeAbierta(s, q.key), d = cache.docente[s.uid];
-        return { codigo: q.key, dimension: DIMS.find(x => x.key === q.dim).name, pregunta: q.texto, respuesta: q.field ? ((s.openAnswers || {})[q.field] || '') : null, puntaje: p ? p.v : null, nivel_escuela: p ? ESCUELA[p.v] : null, origen_puntaje: p ? p.origen : null, comentario: (d && d.comentarios && d.comentarios[q.key]) || '' };
+        return { codigo: q.key, dimension: DIMS.find(x => x.key === q.dim).name, pregunta: q.texto, respuesta: q.field ? ((s.openAnswers || {})[q.field] || '') : null, puntaje: p ? p.v : null, nivel_escuela: p ? ESCUELA[p.v] : null, origen_puntaje: p ? p.origen : null, comentario: (d && d.comentarios && d.comentarios[q.key]) || '', insumo_evaluador: CJ.INSUMOS[q.key] || null, evidencia_observada: q.key === 'P3b' ? ((d && d.evidencia && d.evidencia.P3b) || []) : undefined };
       }),
       imagenes: {
         dibujo_tablet: { archivo: im.archivoDibujo || null, cargada: !!getMedia(s, 'dibujo'), data_url: conImagenes && getMedia(s, 'dibujo') ? getMedia(s, 'dibujo').dataUrl : undefined },
         foto_papel: { archivo: im.archivoFoto || null, cargada: !!getMedia(s, 'foto'), data_url: conImagenes && getMedia(s, 'foto') ? getMedia(s, 'foto').dataUrl : undefined }
       },
+      hallazgos_adicionales: (cache.docente[s.uid] && cache.docente[s.uid].hallazgos) || '',
       retroalimentacion: feedbackDe(c)
     };
   }
@@ -726,15 +796,17 @@
     XLSX.utils.book_append_sheet(wb, ws1, 'Perfiles');
 
     const head2 = ['ID', 'Nombre'];
-    PREGUNTAS.forEach(q => { head2.push(q.key + ' respuesta', q.key + ' puntaje', q.key + ' nivel', q.key + ' comentario'); });
+    PREGUNTAS.forEach(q => { head2.push(q.key + ' respuesta', q.key + ' puntaje', q.key + ' nivel', q.key + ' comentario'); if (q.key === 'P3b') head2.push('P3b evidencia observada'); });
+    head2.push('Hallazgos adicionales');
     const rows2 = items.map(c => {
       const r = resumenEstudiante(c, false);
       const row = [r.id, r.nombre];
-      r.preguntas_abiertas.forEach(p => row.push(p.respuesta === null ? '(evidencia visual)' : p.respuesta, p.puntaje, p.nivel_escuela || '', p.comentario));
+      r.preguntas_abiertas.forEach(p => { row.push(p.respuesta === null ? '(evidencia visual)' : p.respuesta, p.puntaje, p.nivel_escuela || '', p.comentario); if (p.codigo === 'P3b') row.push((p.evidencia_observada || []).join(' / ')); });
+      row.push(r.hallazgos_adicionales);
       return row;
     });
     const ws2 = XLSX.utils.aoa_to_sheet([head2, ...rows2]);
-    ws2['!cols'] = head2.map((h, i) => ({ wch: i < 2 ? (i ? 34 : 8) : (/respuesta|comentario/.test(h) ? 42 : 12) }));
+    ws2['!cols'] = head2.map((h, i) => ({ wch: i < 2 ? (i ? 34 : 8) : (/respuesta|comentario|evidencia|Hallazgos/.test(h) ? 42 : 12) }));
     XLSX.utils.book_append_sheet(wb, ws2, 'Preguntas abiertas');
 
     const ws3 = XLSX.utils.aoa_to_sheet([['ID', 'Nombre', 'Perfil', 'Retroalimentación'], ...items.map(c => [c.s.id, titleCase(c.s.name), c.perfil || '', feedbackDe(c)])]);
@@ -782,7 +854,8 @@
       return `<div class="q"><div class="qh"><span><b>${q.key}</b> · ${esc(DIMS.find(d => d.key === q.dim).name)}</span><span>${p ? `<span class="pill l${p.v}">${ESCUELA[p.v]} (${p.v})</span>` : 'sin evaluar'}</span></div>
         <div class="qt">${esc(q.texto)}</div>
         <div class="qa">${resp === null ? '<i>Se evalúa a partir del dibujo o la foto del desarrollo.</i>' : (resp ? esc(resp) : '<i>[sin respuesta]</i>')}</div>
-        ${dcn.comentarios && dcn.comentarios[q.key] ? `<div class="qc"><b>Comentario docente:</b> ${escBR(dcn.comentarios[q.key])}</div>` : ''}</div>`;
+        ${q.key === 'P3b' && dcn.evidencia && dcn.evidencia.P3b && dcn.evidencia.P3b.length ? `<div class="qc"><b>Evidencia observada:</b> ${esc(dcn.evidencia.P3b.join(' · '))}</div>` : ''}
+        ${dcn.comentarios && dcn.comentarios[q.key] ? `<div class="qc"><b>${q.visual || q.key === 'P1' ? 'Comentario del revisor' : 'Comentario docente'}:</b> ${escBR(dcn.comentarios[q.key])}</div>` : ''}</div>`;
     }).join('');
     const figs = [];
     for (const [tipo, tit] of [['dibujo', 'Dibujo en tablet'], ['foto', 'Foto del papel']]) {
@@ -803,6 +876,7 @@
       <div class="note" style="margin-top:4px">Final = promedio entre el Likert normalizado y las preguntas abiertas. Sistema de Creencias: solo Likert. Niveles: Destacado ≥ 3,40 · Competente 2,65–3,39 · Adecuado 2,00–2,64 · Insuficiente &lt; 2,00.</div>
       <h2>Preguntas abiertas</h2>${qs}
       ${figs.length ? `<h2>Desarrollo del problema</h2><div class="imgs">${figs.join('')}</div>` : ''}
+      ${dcn.hallazgos && dcn.hallazgos.trim() ? `<h2>Hallazgos adicionales</h2><div class="fb"><p>${escBR(dcn.hallazgos)}</p></div>` : ''}
       <h2>Retroalimentación formativa</h2><div class="fb"><p>${escBR(feedbackDe(c))}</p></div>
       <div class="foot"><span>${esc(AUTORIA)}</span><span>Educa Fractalia · Laboratorio de Evaluación e Investigación en educación matemática</span></div>
     </section>`;
