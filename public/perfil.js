@@ -327,16 +327,19 @@
     const rec = { key: mediaKey(s.uid, tipo), uid: s.uid, tipo, dataUrl: imgData.dataUrl, mediaType: imgData.mediaType, filename: file.name, size: file.size, via: via || 'manual', savedAt: new Date().toISOString() };
     cache.media[rec.key] = rec;
     await idbPut('media', rec);
-    // Compatibilidad con el Módulo 02: la imagen que usa la IA es la foto del papel si existe, si no el dibujo
-    const im = s.imagenes || {};
-    const pref = (im.archivoFoto || im.urlFoto) ? 'foto' : 'dibujo';
-    if (tipo === pref && typeof saveStudentImage === 'function') {
-      try { await saveStudentImage(s.id, { base64: imgData.base64, mediaType: imgData.mediaType, dataUrl: imgData.dataUrl, filename: file.name, size: file.size }); } catch (e) { /* no crítico */ }
-    }
+    await sincronizarModulo02(s);
+  }
+  /** El Módulo 02 (IA) lee UNA imagen por estudiante: la foto del papel si está cargada, si no el dibujo. */
+  async function sincronizarModulo02(s) {
+    if (typeof saveStudentImage !== 'function') return;
+    const m = getMedia(s, 'foto') || getMedia(s, 'dibujo');
+    if (!m) return;
+    try { await saveStudentImage(s.id, { base64: m.dataUrl.split(',')[1], mediaType: m.mediaType, dataUrl: m.dataUrl, filename: m.filename, size: m.size }); } catch (e) { /* no crítico */ }
   }
   async function quitarImagen(s, tipo) {
     delete cache.media[mediaKey(s.uid, tipo)];
     await idbDel('media', mediaKey(s.uid, tipo));
+    await sincronizarModulo02(s);
   }
 
   const normFile = n => (n || '').toString().split(/[\\/]/).pop().toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[^a-z0-9]/g, '');
@@ -468,6 +471,26 @@
     $('perfilModal').classList.remove('active'); currentUid = null; refresh();
   }
 
+  /* ───────────────────────── IA (Módulo 02) dentro del perfil ───────────────────────── */
+  const evIA = s => (typeof state !== 'undefined' && state.evaluations) ? state.evaluations[s.id] : null;
+  function propuestaIA(s, q) {
+    const ev = evIA(s);
+    if (!ev || !ev[q.key] || !ev[q.key].puntaje || (ev.estado !== 'completed' && ev.estado !== 'reviewed')) return '';
+    const d = cache.docente[s.uid], actual = d && d.scores ? d.scores[q.key] : null, n = ev[q.key].puntaje;
+    return `<div class="oq-ia"><span class="oq-src">Propuesta IA: <b>${n}</b> (${ESCUELA[n]})${ev[q.key].justificacion ? ' — ' + esc(ev[q.key].justificacion) : ''}</span>
+      ${actual === n ? '<span class="oq-src">✓ adoptada</span>' : `<button class="btn btn-ghost btn-sm oq-use-ia" data-score="${n}">Usar ${n}</button>`}</div>`;
+  }
+  function bloqueIA(s) {
+    const ev = evIA(s), listo = typeof state !== 'undefined' && state.apiReady, hayImg = !!(getMedia(s, 'foto') || getMedia(s, 'dibujo'));
+    const estado = !ev ? 'Aún sin evaluar con IA.' : (ev.hasLocalImage ? 'Evaluado con imagen.' : 'Evaluado SIN imagen: conviene reevaluar ahora.');
+    return `<div class="pf-card" style="margin-top:12px;">
+      <div class="pf-title" style="margin-bottom:6px;">Evaluación con IA</div>
+      <div class="p4-mini" style="line-height:1.5;margin-bottom:8px;">${estado} ${hayImg ? '' : 'Carga una imagen para incluir el análisis del desarrollo.'}</div>
+      <button class="btn btn-primary btn-sm" id="pfReevaluar" ${listo ? '' : 'disabled'}>🔄 ${ev ? 'Reevaluar con IA' : 'Evaluar con IA'}</button>
+      ${listo ? '' : '<div class="p4-mini" style="margin-top:6px;">La IA no está conectada.</div>'}
+    </div>`;
+  }
+
   function renderPerfil() {
     const s = state.students.find(x => x.uid === currentUid);
     if (!s) return;
@@ -535,6 +558,7 @@
           <span class="lvl">${p ? ESCUELA[p.v] : 'sin evaluar'}</span>
           ${p && p.origen !== 'docente' ? `<span class="oq-src">(tomado del ${p.origen})</span>` : ''}
         </div>
+        ${propuestaIA(s, q)}
         <textarea class="oq-comment" data-q="${q.key}" placeholder="Comentario del/la docente (opcional)">${esc((dcn.comentarios || {})[q.key] || '')}</textarea>
       </div>`;
     }).join('');
@@ -548,7 +572,8 @@
           <div class="p4-mini" style="margin-top:8px;line-height:1.5;">Final = promedio entre el Likert normalizado y el promedio de las preguntas abiertas. Sistema de Creencias se calcula solo con el Likert.</div></div>
         <div class="pf-block"><div class="pf-title">Desarrollo del problema</div>
           <div class="pf-images">${imgSlot('dibujo', 'Dibujo en tablet')}${imgSlot('foto', 'Foto del papel')}</div>
-          <input type="file" id="pfImgInput" accept="image/*" style="display:none"></div>
+          <input type="file" id="pfImgInput" accept="image/*" style="display:none">
+          ${bloqueIA(s)}</div>
       </div>
       <div>
         <div class="pf-block"><div class="pf-title">Preguntas abiertas</div>${oqHTML}</div>
@@ -577,6 +602,23 @@
         if (d.scores[q] === n) delete d.scores[q]; else d.scores[q] = n;
         renderPerfil();                                   // la pantalla responde de inmediato
         saveDocente(s.uid).then(flashSaved); return;
+      }
+      const ia = e.target.closest('.oq-use-ia');
+      if (ia) {
+        const q = ia.closest('.oq-card').dataset.q, d = docente(s.uid);
+        d.scores[q] = parseInt(ia.dataset.score, 10);
+        renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
+      }
+      if (e.target.id === 'pfReevaluar') {
+        if (typeof evaluateStudent !== 'function') { toast('El Módulo 02 no está disponible'); return; }
+        const ev = evIA(s);
+        if (ev && ev.estado === 'reviewed' && !confirm('Este estudiante ya fue revisado en el Módulo 02. Reevaluar reemplazará esa propuesta (tus puntajes docentes de este módulo no cambian). ¿Continuar?')) return;
+        await sincronizarModulo02(s);
+        if (ev) delete state.evaluations[s.id];
+        const ok = await evaluateStudent(s.id);
+        if (!ok) toast('No se pudo evaluar con IA');
+        if (currentUid === s.uid) renderPerfil();
+        return;
       }
       if (e.target.closest('.pf-img-up')) {
         imgTarget = e.target.closest('.pf-img').dataset.tipo; $('pfImgInput').value = ''; $('pfImgInput').click(); return;
