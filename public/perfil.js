@@ -358,7 +358,25 @@
         if (!fuzzy && a.length >= 10 && f.length >= 10 && (f.endsWith(a) || a.endsWith(f))) fuzzy = { s, tipo, via: 'nombre de archivo parcial' };
       }
     }
-    return fuzzy;
+    return fuzzy || buscarPorRotulo(fname);
+  }
+
+  /** Respaldo: archivos rotulados a mano, p. ej. "S03_dibujo.png" o "Diego Halabi - foto.jpg". */
+  function buscarPorRotulo(fname) {
+    const base = (fname || '').replace(/\.[a-z0-9]+$/i, '');
+    const plano = base.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const tipo = /dibuj|tablet|drawing/.test(plano) ? 'dibujo' : /foto|papel|cuaderno|photo|hoja/.test(plano) ? 'foto' : null;
+    if (!tipo) return null;
+    const cands = [];
+    const m = plano.match(/(?:^|[^a-z0-9])s0*(\d{1,3})(?![0-9])/);
+    if (m) state.students.filter(s => parseInt((s.id || '').replace(/\D/g, ''), 10) === parseInt(m[1], 10)).forEach(s => cands.push(s));
+    if (!cands.length) {
+      state.students.forEach(s => {
+        const toks = (s.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        if (toks.length >= 2 && toks.filter(w => plano.includes(w)).length >= Math.min(2, toks.length)) cands.push(s);
+      });
+    }
+    return cands.length === 1 ? { s: cands[0], tipo, via: 'rótulo del archivo' } : null;
   }
 
   async function cargarImagenes(files) {
@@ -903,6 +921,8 @@ ${secciones.join('\n')}</body></html>`;
       const tr = e.target.closest('tr[data-uid]'); if (tr) openPerfil(tr.dataset.uid);
     });
     $('p4UploadImgs').addEventListener('click', () => $('p4ImgInput').click());
+    $('p4UploadFolder').addEventListener('click', () => $('p4FolderInput').click());
+    $('p4FolderInput').addEventListener('change', e => { cargarImagenes(e.target.files); e.target.value = ''; });
     $('p4ImgInput').addEventListener('change', e => { cargarImagenes(e.target.files); e.target.value = ''; });
     $('p4DlXlsx').addEventListener('click', async () => { await ready; descargarExcel(recompute()); });
     $('p4DlJson').addEventListener('click', async () => { await ready; descargarJSON(recompute(), 'Perfiles_curso_' + today() + '.json'); });
