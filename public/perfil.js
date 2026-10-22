@@ -963,6 +963,39 @@ ${secciones.join('\n')}</body></html>`;
       const tr = e.target.closest('tr[data-uid]'); if (tr) openPerfil(tr.dataset.uid);
     });
     $('p4UploadImgs').addEventListener('click', () => $('p4ImgInput').click());
+    $('p4EvalAll').addEventListener('click', async () => {
+      if (typeof evaluateStudent !== 'function' || !state.apiReady) { toast('La IA no está conectada'); return; }
+      const pend = state.students.filter(s => { const ev = evIA(s); return !ev || (ev.estado !== 'completed' && ev.estado !== 'reviewed'); });
+      const todos = state.students.length;
+      const sobre = pend.length ? pend : [];
+      if (!sobre.length) { if (!confirm('Todos ya tienen evaluación IA. ¿Reevaluar a los ' + todos + '? (no cambia tus puntajes docentes)')) return; sobre.push(...state.students.filter(s => { const ev = evIA(s); return !ev || ev.estado !== 'reviewed'; })); }
+      else if (!confirm('Se evaluarán con IA ' + sobre.length + ' estudiante(s). Puede tardar unos minutos. ¿Continuar?')) return;
+      const btn = $('p4EvalAll'); btn.disabled = true; let ok = 0;
+      for (let i = 0; i < sobre.length; i++) {
+        btn.textContent = `🤖 Evaluando ${i + 1}/${sobre.length}…`;
+        try { await sincronizarModulo02(sobre[i]); if (evIA(sobre[i])) delete state.evaluations[sobre[i].id]; if (await evaluateStudent(sobre[i].id)) ok++; } catch (e) { console.warn(e); }
+      }
+      btn.disabled = false; btn.textContent = '🤖 Evaluar a todos con IA';
+      toast(`IA: ${ok}/${sobre.length} evaluados. Revisa y pulsa “Adoptar propuestas IA”.`, ok === sobre.length ? 'success' : 'info');
+      refresh();
+    });
+    $('p4AdoptIA').addEventListener('click', async () => {
+      let n = 0, est = 0;
+      for (const s of state.students) {
+        const ev = evIA(s); if (!ev || (ev.estado !== 'completed' && ev.estado !== 'reviewed')) continue;
+        const d = docente(s.uid); let tocado = false;
+        PREGUNTAS.forEach(q => {
+          const r = ev[q.key]; if (!r || !r.puntaje || d.scores[q.key]) return;
+          d.scores[q.key] = r.puntaje; n++; tocado = true;
+          const base = r.comentario_revisor || r.justificacion;
+          if (base && !(d.comentarios[q.key] || '').trim()) d.comentarios[q.key] = base;
+          if (q.key === 'P3b' && Array.isArray(r.heuristicas_detectadas) && r.heuristicas_detectadas.length && !(d.hallazgos || '').trim()) d.hallazgos = 'Heurísticas detectadas (IA): ' + r.heuristicas_detectadas.join(', ') + '.';
+        });
+        if (tocado) { est++; await saveDocente(s.uid); }
+      }
+      toast(n ? `${n} puntaje(s) adoptados en ${est} estudiante(s). Son propuestas: revísalos en cada perfil.` : 'No hay propuestas de IA pendientes de adoptar', n ? 'success' : 'info');
+      refresh();
+    });
     $('p4UploadFolder').addEventListener('click', () => $('p4FolderInput').click());
     $('p4FolderInput').addEventListener('change', e => { cargarImagenes(e.target.files); e.target.value = ''; });
     $('p4ImgInput').addEventListener('change', e => { cargarImagenes(e.target.files); e.target.value = ''; });
