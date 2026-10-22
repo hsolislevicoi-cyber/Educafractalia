@@ -361,22 +361,51 @@
     return fuzzy || buscarPorRotulo(fname);
   }
 
-  /** Respaldo: archivos rotulados a mano, p. ej. "S03_dibujo.png" o "Diego Halabi - foto.jpg". */
-  function buscarPorRotulo(fname) {
-    const base = (fname || '').replace(/\.[a-z0-9]+$/i, '');
-    const plano = base.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const tipo = /dibuj|tablet|drawing/.test(plano) ? 'dibujo' : /foto|papel|cuaderno|photo|hoja/.test(plano) ? 'foto' : null;
-    if (!tipo) return null;
-    const cands = [];
-    const m = plano.match(/(?:^|[^a-z0-9])s0*(\d{1,3})(?![0-9])/);
-    if (m) state.students.filter(s => parseInt((s.id || '').replace(/\D/g, ''), 10) === parseInt(m[1], 10)).forEach(s => cands.push(s));
-    if (!cands.length) {
-      state.students.forEach(s => {
-        const toks = (s.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/\s+/).filter(w => w.length > 2);
-        if (toks.length >= 2 && toks.filter(w => plano.includes(w)).length >= Math.min(2, toks.length)) cands.push(s);
-      });
+  /** Respaldo: archivos rotulados a mano (código S03 o nombre del estudiante, en cualquier orden). */
+  const sinAcentos = x => (x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const STOP = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'dibujo', 'foto', 'tablet', 'papel', 'cuaderno', 'hoja', 'imagen', 'img', 'jpg', 'jpeg', 'png']);
+  const tokens = x => sinAcentos(x).split(/[^a-z0-9ñ]+/).filter(w => w.length > 1 && !STOP.has(w));
+  const tokOk = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a)));
+
+  function inferirTipo(fname, s) {
+    const plano = sinAcentos(fname);
+    if (/dibuj|tablet|drawing/.test(plano)) return { tipo: 'dibujo', inferido: false };
+    if (/foto|papel|cuaderno|photo|hoja/.test(plano)) return { tipo: 'foto', inferido: false };
+    // Sin palabra clave: si ya hay una de las dos cargada, la otra; si no, PNG = tablet, JPG = foto del papel
+    if (s) {
+      const hd = !!getMedia(s, 'dibujo'), hf = !!getMedia(s, 'foto');
+      if (hd && !hf) return { tipo: 'foto', inferido: true };
+      if (hf && !hd) return { tipo: 'dibujo', inferido: true };
     }
-    return cands.length === 1 ? { s: cands[0], tipo, via: 'rótulo del archivo' } : null;
+    return { tipo: /\.png$/i.test(fname) ? 'dibujo' : 'foto', inferido: true };
+  }
+
+  /** Devuelve {s, tipo, tipoInferido, seguro, motivo} o null. seguro = hay un único estudiante que calza. */
+  function sugerirRotulo(fname) {
+    const base = (fname || '').replace(/\.[a-z0-9]+$/i, '');
+    const plano = sinAcentos(base);
+    let cands = [], motivo = '';
+    const m = plano.match(/(?:^|[^a-z0-9])s0*(\d{1,3})(?![0-9])/);
+    if (m) {
+      cands = state.students.filter(s => parseInt((s.id || '').replace(/\D/g, ''), 10) === parseInt(m[1], 10));
+      motivo = 'código ' + (cands[0] ? cands[0].id : m[1]);
+    }
+    if (!cands.length) {
+      const ft = tokens(base);
+      let best = 0, top = [];
+      state.students.forEach(s => {
+        const sc = tokens(s.name).filter(w => ft.some(x => tokOk(w, x))).length;
+        if (sc > best) { best = sc; top = [s]; } else if (sc === best && sc > 0) top.push(s);
+      });
+      if (best >= 1) { cands = top; motivo = 'nombre (' + best + ' coincidencia' + (best > 1 ? 's' : '') + ')'; }
+    }
+    if (!cands.length) return null;
+    const s = cands[0], ti = inferirTipo(fname, s);
+    return { s, tipo: ti.tipo, tipoInferido: ti.inferido, seguro: cands.length === 1, motivo, via: 'rótulo: ' + motivo + (ti.inferido ? ' · tipo inferido' : '') };
+  }
+  function buscarPorRotulo(fname) {
+    const r = sugerirRotulo(fname);
+    return r && r.seguro ? r : null;
   }
 
   async function cargarImagenes(files) {
@@ -388,7 +417,7 @@
         const dest = buscarDestino(f.name);
         const data = await fileToImageData(f);
         if (dest) { await asignarImagen(dest.s, dest.tipo, data, f, dest.via); ok++; }
-        else { cache.unassigned.push({ file: { name: f.name, size: f.size }, data }); sin++; }
+        else { const sg = sugerirRotulo(f.name); cache.unassigned.push({ file: { name: f.name, size: f.size }, data, est: sg ? sg.s.uid : '', tipo: sg ? sg.tipo : 'dibujo', sugerida: !!sg }); sin++; }
       } catch (e) { console.warn(e); err++; }
     }
     toast(`${ok} imagen(es) emparejadas${sin ? ' · ' + sin + ' sin asignar' : ''}${err ? ' · ' + err + ' con error' : ''}`, sin || err ? 'info' : 'success');
@@ -458,13 +487,16 @@
     const box = $('p4Unassigned');
     if (!cache.unassigned.length) { box.innerHTML = ''; box.style.display = 'none'; return; }
     box.style.display = 'block';
-    const opts = state.students.map(s => `<option value="${esc(s.uid)}">${esc(s.id)} · ${esc(s.name)}</option>`).join('');
-    box.innerHTML = `<div class="p4-unassigned"><h4>${cache.unassigned.length} imagen(es) sin asignar — su nombre de archivo no coincide con ninguno de la planilla</h4>
+    const opt = (u) => state.students.map(s => `<option value="${esc(s.uid)}" ${u.est === s.uid ? 'selected' : ''}>${esc(s.id)} · ${esc(s.name)}</option>`).join('');
+    const listas = cache.unassigned.filter(u => u.est).length;
+    box.innerHTML = `<div class="p4-unassigned"><h4>${cache.unassigned.length} imagen(es) por asignar</h4>
+      <div class="p4-un-bar"><button class="btn btn-primary btn-sm" id="unAll" ${listas ? '' : 'disabled'}>✔ Asignar todas las que tienen estudiante (${listas})</button>
+      <span class="p4-mini">Revisa la sugerencia (si la hay) y corrige solo las que no calcen; tus elecciones se conservan.</span></div>
       ${cache.unassigned.map((u, i) => `<div class="p4-un-item" data-i="${i}">
         <img src="${u.data.dataUrl}" alt="">
-        <span class="fn">${esc(u.file.name)}</span>
-        <select class="un-est"><option value="">Estudiante…</option>${opts}</select>
-        <select class="un-tipo"><option value="dibujo">Dibujo en tablet</option><option value="foto">Foto del papel</option></select>
+        <span class="fn">${esc(u.file.name)}${u.sugerida ? '<br><span class="p4-mini">sugerido por el nombre del archivo</span>' : ''}</span>
+        <select class="un-est"><option value="">Estudiante…</option>${opt(u)}</select>
+        <select class="un-tipo"><option value="dibujo" ${u.tipo === 'dibujo' ? 'selected' : ''}>Dibujo en tablet</option><option value="foto" ${u.tipo === 'foto' ? 'selected' : ''}>Foto del papel</option></select>
         <button class="btn btn-primary btn-sm un-ok">Asignar</button>
         <button class="btn btn-ghost btn-sm un-del">Descartar</button>
       </div>`).join('')}</div>`;
@@ -931,19 +963,36 @@ ${secciones.join('\n')}</body></html>`;
       toast('Preparando informes…', 'info');
       await descargarHTML(recompute(), 'Informes_perfil_integral_' + today() + '.html');
     });
+    $('p4Unassigned').addEventListener('change', e => {
+      const item = e.target.closest('.p4-un-item'); if (!item) return;
+      const u = cache.unassigned[parseInt(item.dataset.i, 10)]; if (!u) return;
+      if (e.target.classList.contains('un-est')) u.est = e.target.value;
+      if (e.target.classList.contains('un-tipo')) u.tipo = e.target.value;
+      const n = cache.unassigned.filter(x => x.est).length, b = $('unAll');
+      if (b) { b.disabled = !n; b.textContent = `✔ Asignar todas las que tienen estudiante (${n})`; }
+    });
     $('p4Unassigned').addEventListener('click', async e => {
+      if (e.target.id === 'unAll') {
+        let n = 0;
+        for (const u of cache.unassigned.slice()) {
+          const s = state.students.find(x => x.uid === u.est); if (!s) continue;
+          await asignarImagen(s, u.tipo, u.data, u.file, 'asignación en lote'); n++;
+          cache.unassigned.splice(cache.unassigned.indexOf(u), 1);
+        }
+        toast(n + ' imagen(es) asignadas', 'success'); refresh(); return;
+      }
       const item = e.target.closest('.p4-un-item'); if (!item) return;
       const i = parseInt(item.dataset.i, 10), u = cache.unassigned[i];
       if (e.target.classList.contains('un-del')) { cache.unassigned.splice(i, 1); renderUnassigned(); return; }
       if (e.target.classList.contains('un-ok')) {
-        const uid = item.querySelector('.un-est').value, tipo = item.querySelector('.un-tipo').value;
-        const s = state.students.find(x => x.uid === uid);
+        const s = state.students.find(x => x.uid === u.est);
         if (!s) { toast('Elige el estudiante'); return; }
-        await asignarImagen(s, tipo, u.data, u.file, 'asignación manual');
+        await asignarImagen(s, u.tipo, u.data, u.file, 'asignación manual');
         cache.unassigned.splice(i, 1);
         toast('Imagen asignada a ' + titleCase(s.name), 'success'); refresh();
       }
     });
+
 
     // Navegar al módulo 04 refresca la vista (switchView vive en app.js)
     if (typeof window.switchView === 'function') {

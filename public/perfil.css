@@ -147,3 +147,4 @@
 .rub-row { display: grid; grid-template-columns: 104px 1fr; gap: 8px; padding: 7px 8px; border-top: 1px solid var(--ef-border-soft); line-height: 1.45; }
 .rub-row.sel { background: var(--ef-blue-lightest); border-left: 3px solid var(--ef-blue-dark); }
 .pf-reglas { margin: 8px 0 0 18px; padding: 0; font-size: 12px; line-height: 1.5; }
+.p4-un-bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
