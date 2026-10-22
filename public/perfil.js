@@ -143,11 +143,12 @@
   });
 
   function docente(uid) {
-    if (!cache.docente[uid]) cache.docente[uid] = { uid, scores: {}, comentarios: {}, feedback: null };
+    if (!cache.docente[uid]) cache.docente[uid] = { uid, scores: {}, comentarios: {}, feedback: null, evidencia: {}, hallazgos: '' };
     return cache.docente[uid];
   }
   function saveDocente(uid) {
     const d = docente(uid);
+    if (!d.evidencia) d.evidencia = {};
     d.updatedAt = new Date().toISOString();
     return idbPut('docente', d);
   }
@@ -298,7 +299,16 @@
           ctx.drawImage(img, 0, 0, w, h);
           const mediaType = png ? 'image/png' : 'image/jpeg';
           const dataUrl = cv.toDataURL(mediaType, 0.88);
-          resolve({ dataUrl, mediaType, base64: dataUrl.split(',')[1] });
+          // ¿Parece dibujo de tablet (fondo casi todo blanco) o foto de papel? Pista para rotular sin palabra clave.
+          let esDibujo = false;
+          try {
+            const t = document.createElement('canvas'); t.width = 48; t.height = 48;
+            const tc = t.getContext('2d'); tc.drawImage(cv, 0, 0, 48, 48);
+            const px = tc.getImageData(0, 0, 48, 48).data; let bl = 0;
+            for (let i = 0; i < px.length; i += 4) if (Math.min(px[i], px[i + 1], px[i + 2]) > 235) bl++;
+            esDibujo = bl / (48 * 48) > 0.8;
+          } catch (e) { /* sin pista */ }
+          resolve({ dataUrl, mediaType, base64: dataUrl.split(',')[1], esDibujo });
         };
         img.src = fr.result;
       };
@@ -327,21 +337,24 @@
     const rec = { key: mediaKey(s.uid, tipo), uid: s.uid, tipo, dataUrl: imgData.dataUrl, mediaType: imgData.mediaType, filename: file.name, size: file.size, via: via || 'manual', savedAt: new Date().toISOString() };
     cache.media[rec.key] = rec;
     await idbPut('media', rec);
-    // Compatibilidad con el Módulo 02: la imagen que usa la IA es la foto del papel si existe, si no el dibujo
-    const im = s.imagenes || {};
-    const pref = (im.archivoFoto || im.urlFoto) ? 'foto' : 'dibujo';
-    if (tipo === pref && typeof saveStudentImage === 'function') {
-      try { await saveStudentImage(s.id, { base64: imgData.base64, mediaType: imgData.mediaType, dataUrl: imgData.dataUrl, filename: file.name, size: file.size }); } catch (e) { /* no crítico */ }
-    }
+    await sincronizarModulo02(s);
+  }
+  /** El Módulo 02 (IA) lee UNA imagen por estudiante: la foto del papel si está cargada, si no el dibujo. */
+  async function sincronizarModulo02(s) {
+    if (typeof saveStudentImage !== 'function') return;
+    const m = getMedia(s, 'foto') || getMedia(s, 'dibujo');
+    if (!m) return;
+    try { await saveStudentImage(s.id, { base64: m.dataUrl.split(',')[1], mediaType: m.mediaType, dataUrl: m.dataUrl, filename: m.filename, size: m.size }); } catch (e) { /* no crítico */ }
   }
   async function quitarImagen(s, tipo) {
     delete cache.media[mediaKey(s.uid, tipo)];
     await idbDel('media', mediaKey(s.uid, tipo));
+    await sincronizarModulo02(s);
   }
 
   const normFile = n => (n || '').toString().split(/[\\/]/).pop().toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[^a-z0-9]/g, '');
 
-  function buscarDestino(fname) {
+  function buscarDestino(fname, data) {
     const f = normFile(fname);
     if (!f) return null;
     let fuzzy = null;
@@ -354,7 +367,55 @@
         if (!fuzzy && a.length >= 10 && f.length >= 10 && (f.endsWith(a) || a.endsWith(f))) fuzzy = { s, tipo, via: 'nombre de archivo parcial' };
       }
     }
-    return fuzzy;
+    return fuzzy || buscarPorRotulo(fname, data);
+  }
+
+  /** Respaldo: archivos rotulados a mano (código S03 o nombre del estudiante, en cualquier orden). */
+  const sinAcentos = x => (x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const STOP = new Set(['de', 'del', 'la', 'las', 'los', 'y', 'dibujo', 'foto', 'tablet', 'papel', 'cuaderno', 'hoja', 'imagen', 'img', 'jpg', 'jpeg', 'png']);
+  const tokens = x => sinAcentos(x).split(/[^a-z0-9ñ]+/).filter(w => w.length > 1 && !STOP.has(w));
+  const tokOk = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a)));
+
+  function inferirTipo(fname, s, data) {
+    const plano = sinAcentos(fname);
+    if (/dibuj|tablet|drawing/.test(plano)) return { tipo: 'dibujo', inferido: false };
+    if (/foto|papel|cuaderno|photo|hoja/.test(plano)) return { tipo: 'foto', inferido: false };
+    // Sin palabra clave: si ya hay una de las dos cargada, la otra; si no, PNG = tablet, JPG = foto del papel
+    if (s) {
+      const hd = !!getMedia(s, 'dibujo'), hf = !!getMedia(s, 'foto');
+      if (hd && !hf) return { tipo: 'foto', inferido: true };
+      if (hf && !hd) return { tipo: 'dibujo', inferido: true };
+    }
+    if (data && typeof data.esDibujo === 'boolean') return { tipo: data.esDibujo ? 'dibujo' : 'foto', inferido: true };
+    return { tipo: /\.png$/i.test(fname) ? 'dibujo' : 'foto', inferido: true };
+  }
+
+  /** Devuelve {s, tipo, tipoInferido, seguro, motivo} o null. seguro = hay un único estudiante que calza. */
+  function sugerirRotulo(fname, data) {
+    const base = (fname || '').replace(/\.[a-z0-9]+$/i, '');
+    const plano = sinAcentos(base);
+    let cands = [], motivo = '';
+    const m = plano.match(/(?:^|[^a-z0-9])s0*(\d{1,3})(?![0-9])/);
+    if (m) {
+      cands = state.students.filter(s => parseInt((s.id || '').replace(/\D/g, ''), 10) === parseInt(m[1], 10));
+      motivo = 'código ' + (cands[0] ? cands[0].id : m[1]);
+    }
+    if (!cands.length) {
+      const ft = tokens(base);
+      let best = 0, top = [];
+      state.students.forEach(s => {
+        const sc = tokens(s.name).filter(w => ft.some(x => tokOk(w, x))).length;
+        if (sc > best) { best = sc; top = [s]; } else if (sc === best && sc > 0) top.push(s);
+      });
+      if (best >= 1) { cands = top; motivo = 'nombre (' + best + ' coincidencia' + (best > 1 ? 's' : '') + ')'; }
+    }
+    if (!cands.length) return null;
+    const s = cands[0], ti = inferirTipo(fname, s, data);
+    return { s, tipo: ti.tipo, tipoInferido: ti.inferido, seguro: cands.length === 1, motivo, via: 'rótulo: ' + motivo + (ti.inferido ? ' · tipo inferido' : '') };
+  }
+  function buscarPorRotulo(fname, data) {
+    const r = sugerirRotulo(fname, data);
+    return r && r.seguro ? r : null;
   }
 
   async function cargarImagenes(files) {
@@ -363,10 +424,10 @@
     let ok = 0, sin = 0, err = 0;
     for (const f of files) {
       try {
-        const dest = buscarDestino(f.name);
         const data = await fileToImageData(f);
+        const dest = buscarDestino(f.name, data);
         if (dest) { await asignarImagen(dest.s, dest.tipo, data, f, dest.via); ok++; }
-        else { cache.unassigned.push({ file: { name: f.name, size: f.size }, data }); sin++; }
+        else { const sg = sugerirRotulo(f.name, data); cache.unassigned.push({ file: { name: f.name, size: f.size }, data, est: sg ? sg.s.uid : '', tipo: sg ? sg.tipo : 'dibujo', sugerida: !!sg }); sin++; }
       } catch (e) { console.warn(e); err++; }
     }
     toast(`${ok} imagen(es) emparejadas${sin ? ' · ' + sin + ' sin asignar' : ''}${err ? ' · ' + err + ' con error' : ''}`, sin || err ? 'info' : 'success');
@@ -436,13 +497,16 @@
     const box = $('p4Unassigned');
     if (!cache.unassigned.length) { box.innerHTML = ''; box.style.display = 'none'; return; }
     box.style.display = 'block';
-    const opts = state.students.map(s => `<option value="${esc(s.uid)}">${esc(s.id)} · ${esc(s.name)}</option>`).join('');
-    box.innerHTML = `<div class="p4-unassigned"><h4>${cache.unassigned.length} imagen(es) sin asignar — su nombre de archivo no coincide con ninguno de la planilla</h4>
+    const opt = (u) => state.students.map(s => `<option value="${esc(s.uid)}" ${u.est === s.uid ? 'selected' : ''}>${esc(s.id)} · ${esc(s.name)}</option>`).join('');
+    const listas = cache.unassigned.filter(u => u.est).length;
+    box.innerHTML = `<div class="p4-unassigned"><h4>${cache.unassigned.length} imagen(es) por asignar</h4>
+      <div class="p4-un-bar"><button class="btn btn-primary btn-sm" id="unAll" ${listas ? '' : 'disabled'}>✔ Asignar todas las que tienen estudiante (${listas})</button>
+      <span class="p4-mini">Revisa la sugerencia (si la hay) y corrige solo las que no calcen; tus elecciones se conservan.</span></div>
       ${cache.unassigned.map((u, i) => `<div class="p4-un-item" data-i="${i}">
         <img src="${u.data.dataUrl}" alt="">
-        <span class="fn">${esc(u.file.name)}</span>
-        <select class="un-est"><option value="">Estudiante…</option>${opts}</select>
-        <select class="un-tipo"><option value="dibujo">Dibujo en tablet</option><option value="foto">Foto del papel</option></select>
+        <span class="fn">${esc(u.file.name)}${u.sugerida ? '<br><span class="p4-mini">sugerido por el nombre del archivo</span>' : ''}</span>
+        <select class="un-est"><option value="">Estudiante…</option>${opt(u)}</select>
+        <select class="un-tipo"><option value="dibujo" ${u.tipo === 'dibujo' ? 'selected' : ''}>Dibujo en tablet</option><option value="foto" ${u.tipo === 'foto' ? 'selected' : ''}>Foto del papel</option></select>
         <button class="btn btn-primary btn-sm un-ok">Asignar</button>
         <button class="btn btn-ghost btn-sm un-del">Descartar</button>
       </div>`).join('')}</div>`;
@@ -466,6 +530,73 @@
   }
   function closePerfil() {
     $('perfilModal').classList.remove('active'); currentUid = null; refresh();
+  }
+
+  /* ───────────────────────── IA (Módulo 02) dentro del perfil ───────────────────────── */
+  const evIA = s => (typeof state !== 'undefined' && state.evaluations) ? state.evaluations[s.id] : null;
+  function propuestaIA(s, q) {
+    const ev = evIA(s);
+    if (!ev || !ev[q.key] || !ev[q.key].puntaje || (ev.estado !== 'completed' && ev.estado !== 'reviewed')) return '';
+    const d = cache.docente[s.uid], actual = d && d.scores ? d.scores[q.key] : null, n = ev[q.key].puntaje;
+    return `<div class="oq-ia"><span class="oq-src">Propuesta IA: <b>${n}</b> (${ESCUELA[n]})${ev[q.key].justificacion ? ' — ' + esc(ev[q.key].justificacion) : ''}</span>
+      ${actual === n ? '<span class="oq-src">✓ adoptada</span>' : `<button class="btn btn-ghost btn-sm oq-use-ia" data-score="${n}">Usar ${n}</button>`}</div>`;
+  }
+  function bloqueIA(s) {
+    const ev = evIA(s), listo = typeof state !== 'undefined' && state.apiReady, hayImg = !!(getMedia(s, 'foto') || getMedia(s, 'dibujo'));
+    const estado = !ev ? 'Aún sin evaluar con IA.' : (ev.hasLocalImage ? 'Evaluado con imagen.' : 'Evaluado SIN imagen: conviene reevaluar ahora.');
+    return `<div class="pf-card" style="margin-top:12px;">
+      <div class="pf-title" style="margin-bottom:6px;">Evaluación con IA</div>
+      <div class="p4-mini" style="line-height:1.5;margin-bottom:8px;">${estado} ${hayImg ? '' : 'Carga una imagen para incluir el análisis del desarrollo.'}</div>
+      <button class="btn btn-primary btn-sm" id="pfReevaluar" ${listo ? '' : 'disabled'}>🔄 ${ev ? 'Reevaluar con IA' : 'Evaluar con IA'}</button>
+      ${listo ? '' : '<div class="p4-mini" style="margin-top:6px;">La IA no está conectada.</div>'}
+    </div>`;
+  }
+
+  /* ───────────────────────── Criterios de jueces ───────────────────────── */
+  const CJ = window.CriteriosJuez || { PROBLEMA: {}, REGLAS: [], RUBRICA: {}, INSUMOS: {}, COMENTARIOS_P1: [], EVIDENCIA_P3B: [] };
+  function operacionDeclarada(s) {
+    const txt = ((s.openAnswers || {}).p1 || '').toLowerCase();
+    const m = txt.match(/suma|adici[oó]n|resta|sustracci[oó]n|multiplicaci[oó]n|divisi[oó]n|ecuaci[oó]n/);
+    if (!m) return null;
+    const w = m[0];
+    return /adici|suma/.test(w) ? 'suma' : /sustra|resta/.test(w) ? 'resta' : /multip/.test(w) ? 'multiplicación' : /divis/.test(w) ? 'división' : 'ecuación';
+  }
+  function plantillasP1(s) {
+    const op = operacionDeclarada(s);
+    const ops = op ? (/ón$/.test(op) ? op.replace(/ón$/, 'ones') : op + 's') : 'las operaciones';
+    return CJ.COMENTARIOS_P1.map(t => op
+      ? t.replace('{una}', 'una ' + op).replace('{ops}', ops).replace('{op}', op)
+      : t.replace('{una}', 'la operación declarada').replace('{ops}', 'las operaciones declaradas').replace('{op}', 'la operación declarada'));
+  }
+  function bloqueCriterios(s, q, p, dcn) {
+    const rub = CJ.RUBRICA[q.dim];
+    const insumo = CJ.INSUMOS[q.key];
+    let extra = '';
+    if (q.key === 'P1') {
+      extra = `<div class="oq-chips"><span class="oq-src">Comentarios tipo del revisor (clic para insertar):</span>${plantillasP1(s).map((t, i) => `<button type="button" class="oq-chip" data-txt="${esc(t)}">${esc(t)}</button>`).join('')}</div>`;
+    }
+    if (q.key === 'P3b') {
+      const sel = (dcn.evidencia && dcn.evidencia.P3b) || [];
+      extra = `<div class="oq-chips"><span class="oq-src">Evidencia observable en el desarrollo:</span>${CJ.EVIDENCIA_P3B.map(e => `<label class="oq-check"><input type="checkbox" class="ev-chk" data-ev="${esc(e)}" ${sel.includes(e) ? 'checked' : ''}> ${esc(e)}</label>`).join('')}</div>`;
+    }
+    const niveles = rub ? [4, 3, 2, 1].map(n => `<div class="rub-row ${p && p.v === n ? 'sel' : ''}"><b>${n} · ${ESCUELA[n]}</b><span>${esc(rub[n])}</span></div>`).join('') : '';
+    return `<div class="oq-insumo"><b>Insumo para el puntaje:</b> ${esc(insumo || '')}</div>${extra}
+      ${rub ? `<details class="oq-rub"><summary>Ver rúbrica · ${esc(rub.titulo)}</summary>${niveles}</details>` : ''}`;
+  }
+  function bloqueProblema() {
+    const P = CJ.PROBLEMA;
+    if (!P.enunciado) return '';
+    return `<div class="pf-block"><div class="pf-title">Problema y criterios de revisión</div>
+      <details class="pf-card pf-prob"><summary>Ver problema y reglas de codificación</summary>
+        <div style="margin-top:8px;line-height:1.55;">“${esc(P.enunciado)}”</div>
+        <table class="pf-dims" style="margin-top:8px;"><tbody>
+          <tr><td>Respuesta correcta</td><td><b>${esc(P.respuesta)}</b></td></tr>
+          <tr><td>Complejidad</td><td>${esc(P.complejidad)}</td></tr>
+          <tr><td>Contenido</td><td>${esc(P.contenido)}</td></tr>
+          <tr><td>Rango de aplicación</td><td>${esc(P.rango)}</td></tr></tbody></table>
+        <div class="p4-mini" style="margin-top:8px;line-height:1.5;">${esc(P.descripcion)}</div>
+        <ul class="pf-reglas">${CJ.REGLAS.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+      </details></div>`;
   }
 
   function renderPerfil() {
@@ -535,7 +666,9 @@
           <span class="lvl">${p ? ESCUELA[p.v] : 'sin evaluar'}</span>
           ${p && p.origen !== 'docente' ? `<span class="oq-src">(tomado del ${p.origen})</span>` : ''}
         </div>
-        <textarea class="oq-comment" data-q="${q.key}" placeholder="Comentario del/la docente (opcional)">${esc((dcn.comentarios || {})[q.key] || '')}</textarea>
+        ${propuestaIA(s, q)}
+        ${bloqueCriterios(s, q, p, dcn)}
+        <textarea class="oq-comment" data-q="${q.key}" placeholder="${q.visual ? 'Evidencia observada en el desarrollo (heurísticas)' : q.key === 'P1' ? 'Comentario del revisor: coherencia con el desarrollo' : 'Comentario del/la docente (opcional)'}">${esc((dcn.comentarios || {})[q.key] || '')}</textarea>
       </div>`;
     }).join('');
 
@@ -546,12 +679,16 @@
         <div class="pf-block"><div class="pf-title">Puntajes por dimensión (escala 1–4)</div>
           <table class="pf-dims"><thead><tr><th>Dimensión</th><th class="num">Likert</th><th class="num">Abiertas</th><th class="num">Final</th><th>Nivel</th></tr></thead><tbody>${dimRows}</tbody></table>
           <div class="p4-mini" style="margin-top:8px;line-height:1.5;">Final = promedio entre el Likert normalizado y el promedio de las preguntas abiertas. Sistema de Creencias se calcula solo con el Likert.</div></div>
+        ${bloqueProblema()}
         <div class="pf-block"><div class="pf-title">Desarrollo del problema</div>
           <div class="pf-images">${imgSlot('dibujo', 'Dibujo en tablet')}${imgSlot('foto', 'Foto del papel')}</div>
-          <input type="file" id="pfImgInput" accept="image/*" style="display:none"></div>
+          <input type="file" id="pfImgInput" accept="image/*" style="display:none">
+          ${bloqueIA(s)}</div>
       </div>
       <div>
         <div class="pf-block"><div class="pf-title">Preguntas abiertas</div>${oqHTML}</div>
+        <div class="pf-block"><div class="pf-title">Hallazgos adicionales <span class="p4-mini">(descripción objetiva del/la estudiante)</span></div>
+          <textarea class="pf-feedback" id="pfHallazgos" style="min-height:90px;" placeholder="Anota todo hallazgo, sustentado en evidencia escrita, que describa objetivamente al/la estudiante según los criterios.">${esc(dcn.hallazgos || '')}</textarea></div>
         <div class="pf-block"><div class="pf-title">Retroalimentación formativa <span id="pfSaved" class="pf-saved"></span></div>
           <textarea class="pf-feedback" id="pfFeedback">${esc(feedbackDe(c))}</textarea>
           <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
@@ -578,6 +715,30 @@
         renderPerfil();                                   // la pantalla responde de inmediato
         saveDocente(s.uid).then(flashSaved); return;
       }
+      const chip = e.target.closest('.oq-chip');
+      if (chip) {
+        const q = chip.closest('.oq-card').dataset.q, d = docente(s.uid);
+        const cur = (d.comentarios[q] || '').trim();
+        d.comentarios[q] = cur ? cur + '. ' + chip.dataset.txt : chip.dataset.txt;
+        renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
+      }
+      const ia = e.target.closest('.oq-use-ia');
+      if (ia) {
+        const q = ia.closest('.oq-card').dataset.q, d = docente(s.uid);
+        d.scores[q] = parseInt(ia.dataset.score, 10);
+        renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
+      }
+      if (e.target.id === 'pfReevaluar') {
+        if (typeof evaluateStudent !== 'function') { toast('El Módulo 02 no está disponible'); return; }
+        const ev = evIA(s);
+        if (ev && ev.estado === 'reviewed' && !confirm('Este estudiante ya fue revisado en el Módulo 02. Reevaluar reemplazará esa propuesta (tus puntajes docentes de este módulo no cambian). ¿Continuar?')) return;
+        await sincronizarModulo02(s);
+        if (ev) delete state.evaluations[s.id];
+        const ok = await evaluateStudent(s.id);
+        if (!ok) toast('No se pudo evaluar con IA');
+        if (currentUid === s.uid) renderPerfil();
+        return;
+      }
       if (e.target.closest('.pf-img-up')) {
         imgTarget = e.target.closest('.pf-img').dataset.tipo; $('pfImgInput').value = ''; $('pfImgInput').click(); return;
       }
@@ -593,6 +754,13 @@
     });
     body.addEventListener('change', async e => {
       const s = state.students.find(x => x.uid === currentUid);
+      if (s && e.target.classList.contains('ev-chk')) {
+        const d = docente(s.uid); d.evidencia = d.evidencia || {};
+        const set = new Set(d.evidencia.P3b || []);
+        e.target.checked ? set.add(e.target.dataset.ev) : set.delete(e.target.dataset.ev);
+        d.evidencia.P3b = CJ.EVIDENCIA_P3B.filter(x => set.has(x));
+        saveDocente(s.uid).then(flashSaved); return;
+      }
       if (!s || e.target.id !== 'pfImgInput' || !imgTarget) return;
       const f = e.target.files[0]; if (!f) return;
       try {
@@ -609,6 +777,9 @@
       if (e.target.classList.contains('oq-comment')) {
         const q = e.target.dataset.q, d = docente(s.uid);
         d.comentarios[q] = e.target.value;
+        clearTimeout(t); t = setTimeout(async () => { await saveDocente(s.uid); flashSaved(); }, 500);
+      } else if (e.target.id === 'pfHallazgos') {
+        const d = docente(s.uid); d.hallazgos = e.target.value;
         clearTimeout(t); t = setTimeout(async () => { await saveDocente(s.uid); flashSaved(); }, 500);
       } else if (e.target.id === 'pfFeedback') {
         const d = docente(s.uid); d.feedback = e.target.value;
@@ -646,12 +817,13 @@
       perfil: { codigo: c.perfil, nombre: c.perfil ? PERFILES[c.perfil].nombre : null, provisorio: c.provisional, alternativos: c.alternativos, requiere_revision: c.revision, avisos: c.flags },
       preguntas_abiertas: PREGUNTAS.map(q => {
         const p = puntajeAbierta(s, q.key), d = cache.docente[s.uid];
-        return { codigo: q.key, dimension: DIMS.find(x => x.key === q.dim).name, pregunta: q.texto, respuesta: q.field ? ((s.openAnswers || {})[q.field] || '') : null, puntaje: p ? p.v : null, nivel_escuela: p ? ESCUELA[p.v] : null, origen_puntaje: p ? p.origen : null, comentario: (d && d.comentarios && d.comentarios[q.key]) || '' };
+        return { codigo: q.key, dimension: DIMS.find(x => x.key === q.dim).name, pregunta: q.texto, respuesta: q.field ? ((s.openAnswers || {})[q.field] || '') : null, puntaje: p ? p.v : null, nivel_escuela: p ? ESCUELA[p.v] : null, origen_puntaje: p ? p.origen : null, comentario: (d && d.comentarios && d.comentarios[q.key]) || '', insumo_evaluador: CJ.INSUMOS[q.key] || null, evidencia_observada: q.key === 'P3b' ? ((d && d.evidencia && d.evidencia.P3b) || []) : undefined };
       }),
       imagenes: {
         dibujo_tablet: { archivo: im.archivoDibujo || null, cargada: !!getMedia(s, 'dibujo'), data_url: conImagenes && getMedia(s, 'dibujo') ? getMedia(s, 'dibujo').dataUrl : undefined },
         foto_papel: { archivo: im.archivoFoto || null, cargada: !!getMedia(s, 'foto'), data_url: conImagenes && getMedia(s, 'foto') ? getMedia(s, 'foto').dataUrl : undefined }
       },
+      hallazgos_adicionales: (cache.docente[s.uid] && cache.docente[s.uid].hallazgos) || '',
       retroalimentacion: feedbackDe(c)
     };
   }
@@ -684,15 +856,17 @@
     XLSX.utils.book_append_sheet(wb, ws1, 'Perfiles');
 
     const head2 = ['ID', 'Nombre'];
-    PREGUNTAS.forEach(q => { head2.push(q.key + ' respuesta', q.key + ' puntaje', q.key + ' nivel', q.key + ' comentario'); });
+    PREGUNTAS.forEach(q => { head2.push(q.key + ' respuesta', q.key + ' puntaje', q.key + ' nivel', q.key + ' comentario'); if (q.key === 'P3b') head2.push('P3b evidencia observada'); });
+    head2.push('Hallazgos adicionales');
     const rows2 = items.map(c => {
       const r = resumenEstudiante(c, false);
       const row = [r.id, r.nombre];
-      r.preguntas_abiertas.forEach(p => row.push(p.respuesta === null ? '(evidencia visual)' : p.respuesta, p.puntaje, p.nivel_escuela || '', p.comentario));
+      r.preguntas_abiertas.forEach(p => { row.push(p.respuesta === null ? '(evidencia visual)' : p.respuesta, p.puntaje, p.nivel_escuela || '', p.comentario); if (p.codigo === 'P3b') row.push((p.evidencia_observada || []).join(' / ')); });
+      row.push(r.hallazgos_adicionales);
       return row;
     });
     const ws2 = XLSX.utils.aoa_to_sheet([head2, ...rows2]);
-    ws2['!cols'] = head2.map((h, i) => ({ wch: i < 2 ? (i ? 34 : 8) : (/respuesta|comentario/.test(h) ? 42 : 12) }));
+    ws2['!cols'] = head2.map((h, i) => ({ wch: i < 2 ? (i ? 34 : 8) : (/respuesta|comentario|evidencia|Hallazgos/.test(h) ? 42 : 12) }));
     XLSX.utils.book_append_sheet(wb, ws2, 'Preguntas abiertas');
 
     const ws3 = XLSX.utils.aoa_to_sheet([['ID', 'Nombre', 'Perfil', 'Retroalimentación'], ...items.map(c => [c.s.id, titleCase(c.s.name), c.perfil || '', feedbackDe(c)])]);
@@ -740,7 +914,8 @@
       return `<div class="q"><div class="qh"><span><b>${q.key}</b> · ${esc(DIMS.find(d => d.key === q.dim).name)}</span><span>${p ? `<span class="pill l${p.v}">${ESCUELA[p.v]} (${p.v})</span>` : 'sin evaluar'}</span></div>
         <div class="qt">${esc(q.texto)}</div>
         <div class="qa">${resp === null ? '<i>Se evalúa a partir del dibujo o la foto del desarrollo.</i>' : (resp ? esc(resp) : '<i>[sin respuesta]</i>')}</div>
-        ${dcn.comentarios && dcn.comentarios[q.key] ? `<div class="qc"><b>Comentario docente:</b> ${escBR(dcn.comentarios[q.key])}</div>` : ''}</div>`;
+        ${q.key === 'P3b' && dcn.evidencia && dcn.evidencia.P3b && dcn.evidencia.P3b.length ? `<div class="qc"><b>Evidencia observada:</b> ${esc(dcn.evidencia.P3b.join(' · '))}</div>` : ''}
+        ${dcn.comentarios && dcn.comentarios[q.key] ? `<div class="qc"><b>${q.visual || q.key === 'P1' ? 'Comentario del revisor' : 'Comentario docente'}:</b> ${escBR(dcn.comentarios[q.key])}</div>` : ''}</div>`;
     }).join('');
     const figs = [];
     for (const [tipo, tit] of [['dibujo', 'Dibujo en tablet'], ['foto', 'Foto del papel']]) {
@@ -761,6 +936,7 @@
       <div class="note" style="margin-top:4px">Final = promedio entre el Likert normalizado y las preguntas abiertas. Sistema de Creencias: solo Likert. Niveles: Destacado ≥ 3,40 · Competente 2,65–3,39 · Adecuado 2,00–2,64 · Insuficiente &lt; 2,00.</div>
       <h2>Preguntas abiertas</h2>${qs}
       ${figs.length ? `<h2>Desarrollo del problema</h2><div class="imgs">${figs.join('')}</div>` : ''}
+      ${dcn.hallazgos && dcn.hallazgos.trim() ? `<h2>Hallazgos adicionales</h2><div class="fb"><p>${escBR(dcn.hallazgos)}</p></div>` : ''}
       <h2>Retroalimentación formativa</h2><div class="fb"><p>${escBR(feedbackDe(c))}</p></div>
       <div class="foot"><span>${esc(AUTORIA)}</span><span>Educa Fractalia · Laboratorio de Evaluación e Investigación en educación matemática</span></div>
     </section>`;
@@ -787,6 +963,41 @@ ${secciones.join('\n')}</body></html>`;
       const tr = e.target.closest('tr[data-uid]'); if (tr) openPerfil(tr.dataset.uid);
     });
     $('p4UploadImgs').addEventListener('click', () => $('p4ImgInput').click());
+    $('p4EvalAll').addEventListener('click', async () => {
+      if (typeof evaluateStudent !== 'function' || !state.apiReady) { toast('La IA no está conectada'); return; }
+      const pend = state.students.filter(s => { const ev = evIA(s); return !ev || (ev.estado !== 'completed' && ev.estado !== 'reviewed'); });
+      const todos = state.students.length;
+      const sobre = pend.length ? pend : [];
+      if (!sobre.length) { if (!confirm('Todos ya tienen evaluación IA. ¿Reevaluar a los ' + todos + '? (no cambia tus puntajes docentes)')) return; sobre.push(...state.students.filter(s => { const ev = evIA(s); return !ev || ev.estado !== 'reviewed'; })); }
+      else if (!confirm('Se evaluarán con IA ' + sobre.length + ' estudiante(s). Puede tardar unos minutos. ¿Continuar?')) return;
+      const btn = $('p4EvalAll'); btn.disabled = true; let ok = 0;
+      for (let i = 0; i < sobre.length; i++) {
+        btn.textContent = `🤖 Evaluando ${i + 1}/${sobre.length}…`;
+        try { await sincronizarModulo02(sobre[i]); if (evIA(sobre[i])) delete state.evaluations[sobre[i].id]; if (await evaluateStudent(sobre[i].id)) ok++; } catch (e) { console.warn(e); }
+      }
+      btn.disabled = false; btn.textContent = '🤖 Evaluar a todos con IA';
+      toast(`IA: ${ok}/${sobre.length} evaluados. Revisa y pulsa “Adoptar propuestas IA”.`, ok === sobre.length ? 'success' : 'info');
+      refresh();
+    });
+    $('p4AdoptIA').addEventListener('click', async () => {
+      let n = 0, est = 0;
+      for (const s of state.students) {
+        const ev = evIA(s); if (!ev || (ev.estado !== 'completed' && ev.estado !== 'reviewed')) continue;
+        const d = docente(s.uid); let tocado = false;
+        PREGUNTAS.forEach(q => {
+          const r = ev[q.key]; if (!r || !r.puntaje || d.scores[q.key]) return;
+          d.scores[q.key] = r.puntaje; n++; tocado = true;
+          const base = r.comentario_revisor || r.justificacion;
+          if (base && !(d.comentarios[q.key] || '').trim()) d.comentarios[q.key] = base;
+          if (q.key === 'P3b' && Array.isArray(r.heuristicas_detectadas) && r.heuristicas_detectadas.length && !(d.hallazgos || '').trim()) d.hallazgos = 'Heurísticas detectadas (IA): ' + r.heuristicas_detectadas.join(', ') + '.';
+        });
+        if (tocado) { est++; await saveDocente(s.uid); }
+      }
+      toast(n ? `${n} puntaje(s) adoptados en ${est} estudiante(s). Son propuestas: revísalos en cada perfil.` : 'No hay propuestas de IA pendientes de adoptar', n ? 'success' : 'info');
+      refresh();
+    });
+    $('p4UploadFolder').addEventListener('click', () => $('p4FolderInput').click());
+    $('p4FolderInput').addEventListener('change', e => { cargarImagenes(e.target.files); e.target.value = ''; });
     $('p4ImgInput').addEventListener('change', e => { cargarImagenes(e.target.files); e.target.value = ''; });
     $('p4DlXlsx').addEventListener('click', async () => { await ready; descargarExcel(recompute()); });
     $('p4DlJson').addEventListener('click', async () => { await ready; descargarJSON(recompute(), 'Perfiles_curso_' + today() + '.json'); });
@@ -795,19 +1006,36 @@ ${secciones.join('\n')}</body></html>`;
       toast('Preparando informes…', 'info');
       await descargarHTML(recompute(), 'Informes_perfil_integral_' + today() + '.html');
     });
+    $('p4Unassigned').addEventListener('change', e => {
+      const item = e.target.closest('.p4-un-item'); if (!item) return;
+      const u = cache.unassigned[parseInt(item.dataset.i, 10)]; if (!u) return;
+      if (e.target.classList.contains('un-est')) u.est = e.target.value;
+      if (e.target.classList.contains('un-tipo')) u.tipo = e.target.value;
+      const n = cache.unassigned.filter(x => x.est).length, b = $('unAll');
+      if (b) { b.disabled = !n; b.textContent = `✔ Asignar todas las que tienen estudiante (${n})`; }
+    });
     $('p4Unassigned').addEventListener('click', async e => {
+      if (e.target.id === 'unAll') {
+        let n = 0;
+        for (const u of cache.unassigned.slice()) {
+          const s = state.students.find(x => x.uid === u.est); if (!s) continue;
+          await asignarImagen(s, u.tipo, u.data, u.file, 'asignación en lote'); n++;
+          cache.unassigned.splice(cache.unassigned.indexOf(u), 1);
+        }
+        toast(n + ' imagen(es) asignadas', 'success'); refresh(); return;
+      }
       const item = e.target.closest('.p4-un-item'); if (!item) return;
       const i = parseInt(item.dataset.i, 10), u = cache.unassigned[i];
       if (e.target.classList.contains('un-del')) { cache.unassigned.splice(i, 1); renderUnassigned(); return; }
       if (e.target.classList.contains('un-ok')) {
-        const uid = item.querySelector('.un-est').value, tipo = item.querySelector('.un-tipo').value;
-        const s = state.students.find(x => x.uid === uid);
+        const s = state.students.find(x => x.uid === u.est);
         if (!s) { toast('Elige el estudiante'); return; }
-        await asignarImagen(s, tipo, u.data, u.file, 'asignación manual');
+        await asignarImagen(s, u.tipo, u.data, u.file, 'asignación manual');
         cache.unassigned.splice(i, 1);
         toast('Imagen asignada a ' + titleCase(s.name), 'success'); refresh();
       }
     });
+
 
     // Navegar al módulo 04 refresca la vista (switchView vive en app.js)
     if (typeof window.switchView === 'function') {
