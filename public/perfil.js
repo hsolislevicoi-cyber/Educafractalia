@@ -444,12 +444,27 @@
   let computed = [];
   function recompute() { computed = (typeof state !== 'undefined' ? state.students : []).map(compute); return computed; }
 
+  /** Imágenes cargadas en el Módulo 02 que aún no están en el perfil integral: se importan (como foto del papel). */
+  async function importarDeModulo02() {
+    if (typeof getStudentImage !== 'function') return;
+    for (const s of state.students) {
+      if (getMedia(s, 'foto') || getMedia(s, 'dibujo')) continue;
+      let im = null; try { im = await getStudentImage(s.id); } catch (e) { /* sin imagen */ }
+      if (!im || !(im.dataUrl || im.base64)) continue;
+      const dataUrl = im.dataUrl || ('data:' + (im.mediaType || 'image/jpeg') + ';base64,' + im.base64);
+      const rec = { key: mediaKey(s.uid, 'foto'), uid: s.uid, tipo: 'foto', dataUrl, mediaType: im.mediaType || 'image/jpeg', filename: im.filename || 'imagen del Módulo 02', size: im.size || 0, via: 'Módulo 02', savedAt: new Date().toISOString() };
+      cache.media[rec.key] = rec;
+      await idbPut('media', rec);
+    }
+  }
+
   async function refresh() {
     await ready;
     const empty = $('modulo4Empty'), main = $('modulo4Main');
     if (!empty || !main) return;
     if (typeof state === 'undefined' || !state.students.length) { empty.style.display = 'block'; main.style.display = 'none'; return; }
     empty.style.display = 'none'; main.style.display = 'block';
+    await importarDeModulo02();
     recompute();
 
     const n = computed.length;
