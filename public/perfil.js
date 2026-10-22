@@ -299,7 +299,16 @@
           ctx.drawImage(img, 0, 0, w, h);
           const mediaType = png ? 'image/png' : 'image/jpeg';
           const dataUrl = cv.toDataURL(mediaType, 0.88);
-          resolve({ dataUrl, mediaType, base64: dataUrl.split(',')[1] });
+          // ¿Parece dibujo de tablet (fondo casi todo blanco) o foto de papel? Pista para rotular sin palabra clave.
+          let esDibujo = false;
+          try {
+            const t = document.createElement('canvas'); t.width = 48; t.height = 48;
+            const tc = t.getContext('2d'); tc.drawImage(cv, 0, 0, 48, 48);
+            const px = tc.getImageData(0, 0, 48, 48).data; let bl = 0;
+            for (let i = 0; i < px.length; i += 4) if (Math.min(px[i], px[i + 1], px[i + 2]) > 235) bl++;
+            esDibujo = bl / (48 * 48) > 0.8;
+          } catch (e) { /* sin pista */ }
+          resolve({ dataUrl, mediaType, base64: dataUrl.split(',')[1], esDibujo });
         };
         img.src = fr.result;
       };
@@ -345,7 +354,7 @@
 
   const normFile = n => (n || '').toString().split(/[\\/]/).pop().toLowerCase().replace(/\.[a-z0-9]+$/, '').replace(/[^a-z0-9]/g, '');
 
-  function buscarDestino(fname) {
+  function buscarDestino(fname, data) {
     const f = normFile(fname);
     if (!f) return null;
     let fuzzy = null;
@@ -358,7 +367,7 @@
         if (!fuzzy && a.length >= 10 && f.length >= 10 && (f.endsWith(a) || a.endsWith(f))) fuzzy = { s, tipo, via: 'nombre de archivo parcial' };
       }
     }
-    return fuzzy || buscarPorRotulo(fname);
+    return fuzzy || buscarPorRotulo(fname, data);
   }
 
   /** Respaldo: archivos rotulados a mano (código S03 o nombre del estudiante, en cualquier orden). */
@@ -367,7 +376,7 @@
   const tokens = x => sinAcentos(x).split(/[^a-z0-9ñ]+/).filter(w => w.length > 1 && !STOP.has(w));
   const tokOk = (a, b) => a === b || (a.length >= 4 && b.length >= 4 && (a.startsWith(b) || b.startsWith(a)));
 
-  function inferirTipo(fname, s) {
+  function inferirTipo(fname, s, data) {
     const plano = sinAcentos(fname);
     if (/dibuj|tablet|drawing/.test(plano)) return { tipo: 'dibujo', inferido: false };
     if (/foto|papel|cuaderno|photo|hoja/.test(plano)) return { tipo: 'foto', inferido: false };
@@ -377,11 +386,12 @@
       if (hd && !hf) return { tipo: 'foto', inferido: true };
       if (hf && !hd) return { tipo: 'dibujo', inferido: true };
     }
+    if (data && typeof data.esDibujo === 'boolean') return { tipo: data.esDibujo ? 'dibujo' : 'foto', inferido: true };
     return { tipo: /\.png$/i.test(fname) ? 'dibujo' : 'foto', inferido: true };
   }
 
   /** Devuelve {s, tipo, tipoInferido, seguro, motivo} o null. seguro = hay un único estudiante que calza. */
-  function sugerirRotulo(fname) {
+  function sugerirRotulo(fname, data) {
     const base = (fname || '').replace(/\.[a-z0-9]+$/i, '');
     const plano = sinAcentos(base);
     let cands = [], motivo = '';
@@ -400,11 +410,11 @@
       if (best >= 1) { cands = top; motivo = 'nombre (' + best + ' coincidencia' + (best > 1 ? 's' : '') + ')'; }
     }
     if (!cands.length) return null;
-    const s = cands[0], ti = inferirTipo(fname, s);
+    const s = cands[0], ti = inferirTipo(fname, s, data);
     return { s, tipo: ti.tipo, tipoInferido: ti.inferido, seguro: cands.length === 1, motivo, via: 'rótulo: ' + motivo + (ti.inferido ? ' · tipo inferido' : '') };
   }
-  function buscarPorRotulo(fname) {
-    const r = sugerirRotulo(fname);
+  function buscarPorRotulo(fname, data) {
+    const r = sugerirRotulo(fname, data);
     return r && r.seguro ? r : null;
   }
 
@@ -414,10 +424,10 @@
     let ok = 0, sin = 0, err = 0;
     for (const f of files) {
       try {
-        const dest = buscarDestino(f.name);
         const data = await fileToImageData(f);
+        const dest = buscarDestino(f.name, data);
         if (dest) { await asignarImagen(dest.s, dest.tipo, data, f, dest.via); ok++; }
-        else { const sg = sugerirRotulo(f.name); cache.unassigned.push({ file: { name: f.name, size: f.size }, data, est: sg ? sg.s.uid : '', tipo: sg ? sg.tipo : 'dibujo', sugerida: !!sg }); sin++; }
+        else { const sg = sugerirRotulo(f.name, data); cache.unassigned.push({ file: { name: f.name, size: f.size }, data, est: sg ? sg.s.uid : '', tipo: sg ? sg.tipo : 'dibujo', sugerida: !!sg }); sin++; }
       } catch (e) { console.warn(e); err++; }
     }
     toast(`${ok} imagen(es) emparejadas${sin ? ' · ' + sin + ' sin asignar' : ''}${err ? ' · ' + err + ' con error' : ''}`, sin || err ? 'info' : 'success');
