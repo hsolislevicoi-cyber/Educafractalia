@@ -17,11 +17,14 @@
   'use strict';
 
   /* ───────────────────────── Constantes ───────────────────────── */
-  const AUTORIA = 'Autora de evaluación: Alejandra Solís Levicoi · 2025';
+  const AUTORIA = 'Evaluación elaborada en base al trabajo académico de Mg. Alejandra Solís Levicoi (2025).';
   const ESQUEMA = 'educa-fractalia/perfil-integral@1';
 
   // Escala de la escuela hospitalaria (equivalencia con la escala técnica 1–4)
   const ESCUELA = { 4: 'Destacado', 3: 'Competente', 2: 'Adecuado', 1: 'Insuficiente' };
+  // Estándar administrativo de la Escuela Común Hospital: perfil (foco pedagógico) → nivel integral (foco administrativo)
+  const NIVEL_ADMIN = { A: 4, B: 3, C: 3, D: 2, E: 1 };
+  const nivelIntegral = perfil => (perfil && NIVEL_ADMIN[perfil]) ? NIVEL_ADMIN[perfil] : null;
   const TECNICO = { 4: 'Alto', 3: 'Medio-alto', 2: 'Medio-bajo', 1: 'Bajo' };
   const NIVEL_CLS = { 4: 'level-alto', 3: 'level-medio-alto', 2: 'level-medio-bajo', 1: 'level-bajo' };
 
@@ -640,7 +643,8 @@
     const perfilBlock = c.perfil
       ? `<span class="perfil-pill ${c.perfil}"><span class="letter">${c.perfil}</span>Perfil ${c.perfil}${c.provisional ? ' · provisorio' : ''}</span>
          <div class="pf-profile-name">${esc(PERFILES[c.perfil].nombre)}</div>
-         <div class="pf-profile-desc">${esc(PERFILES[c.perfil].desc)}</div>`
+         <div class="pf-profile-desc">${esc(PERFILES[c.perfil].desc)}</div>
+         <div class="pf-profile-desc" style="margin-top:8px;"><b>Nivel integral (administrativo):</b> ${ESCUELA[nivelIntegral(c.perfil)]}</div>`
       : `<span class="perfil-pill none"><span class="letter">?</span>Sin perfil directo</span>
          <div class="pf-profile-desc" style="margin-top:8px;">La combinación de niveles no corresponde a una regla de la matriz o faltan datos. Se sugiere asignarlo con juicio profesional.</div>`;
 
@@ -829,7 +833,7 @@
         o[d.key] = { nombre: d.name, likert: x.likert, abiertas: x.abiertas, puntaje: x.score, nivel: x.nivel, nivel_escuela: x.nivel ? ESCUELA[x.nivel] : null, nivel_tecnico: x.nivel ? TECNICO[x.nivel] : null, provisorio: x.provisional };
         return o;
       }, {}),
-      perfil: { codigo: c.perfil, nombre: c.perfil ? PERFILES[c.perfil].nombre : null, provisorio: c.provisional, alternativos: c.alternativos, requiere_revision: c.revision, avisos: c.flags },
+      perfil: { codigo: c.perfil, nombre: c.perfil ? PERFILES[c.perfil].nombre : null, nivel_integral_administrativo: nivelIntegral(c.perfil) ? ESCUELA[nivelIntegral(c.perfil)] : null, provisorio: c.provisional, alternativos: c.alternativos, requiere_revision: c.revision, avisos: c.flags },
       preguntas_abiertas: PREGUNTAS.map(q => {
         const p = puntajeAbierta(s, q.key), d = cache.docente[s.uid];
         return { codigo: q.key, dimension: DIMS.find(x => x.key === q.dim).name, pregunta: q.texto, respuesta: q.field ? ((s.openAnswers || {})[q.field] || '') : null, puntaje: p ? p.v : null, nivel_escuela: p ? ESCUELA[p.v] : null, origen_puntaje: p ? p.origen : null, comentario: (d && d.comentarios && d.comentarios[q.key]) || '', insumo_evaluador: CJ.INSUMOS[q.key] || null, evidencia_observada: q.key === 'P3b' ? ((d && d.evidencia && d.evidencia.P3b) || []) : undefined };
@@ -858,12 +862,12 @@
     const wb = XLSX.utils.book_new();
     const head1 = ['ID', 'Nombre', 'Curso', 'Edad', 'Estadía', 'Fecha aplicación', 'Aplicador'];
     DIMS.forEach(d => { head1.push(d.name + ' (puntaje)', d.name + ' (nivel)'); });
-    head1.push('Perfil', 'Nombre del perfil', 'Estado', 'Avisos');
+    head1.push('Perfil integral (pedagógico)', 'Nombre del perfil', 'Nivel integral (administrativo)', 'Estado', 'Avisos');
     const rows1 = items.map(c => {
       const r = resumenEstudiante(c, false);
       const row = [r.id, r.nombre, r.curso, r.edad, r.estadia, r.fecha_aplicacion, r.aplicador];
       DIMS.forEach(d => { const x = r.dimensiones[d.key]; row.push(x.puntaje, x.nivel_escuela || ''); });
-      row.push(r.perfil.codigo || '', r.perfil.nombre || '', c.provisional ? 'Provisorio' : 'Completo', c.flags.filter(f => !f.startsWith('Provisorio')).join(' | '));
+      row.push(r.perfil.codigo || '', r.perfil.nombre || '', r.perfil.nivel_integral_administrativo || '', c.provisional ? 'Provisorio' : 'Completo', c.flags.filter(f => !f.startsWith('Provisorio')).join(' | '));
       return row;
     });
     const ws1 = XLSX.utils.aoa_to_sheet([head1, ...rows1]);
@@ -914,8 +918,27 @@
   .imgs img{max-width:100%;max-height:300px}.imgs figcaption{font-size:10px;color:var(--gray);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
   .fb p{margin:0 0 8px;white-space:pre-wrap}.note{font-size:10.5px;color:var(--gray)}
   .foot{margin-top:18px;padding-top:8px;border-top:1px solid var(--line);font-size:10.5px;color:var(--gray);display:flex;justify-content:space-between}
+  .integral{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .ibox{border:1px solid var(--line);border-left:4px solid var(--navy);border-radius:6px;padding:8px 12px;background:var(--bg)}
+  .ilab{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mid);font-weight:600}.ival{font-size:14px;font-weight:600;color:var(--navy);margin:3px 0}
+  .conv{grid-column:1/3;width:50%;font-size:11px}.conv th{padding:3px 6px}.conv td{padding:3px 6px}.conv tr.sel td{background:#EDF1F9}
   .warn{background:#F9F1E5;border-left:3px solid #C98840;padding:6px 10px;margin-top:6px;font-size:11.5px;color:#7a531f}
   @media print{.bar{display:none}.page{padding:0;max-width:none}@page{size:A4;margin:14mm}}`;
+
+  function bloqueIntegral(c) {
+    const ni = nivelIntegral(c.perfil);
+    const filas = [['A', 4], ['B', 3], ['C', 3], ['D', 2], ['E', 1]].map(([pf, n]) => `<tr${c.perfil === pf ? ' class="sel"' : ''}><td>Perfil ${pf}</td><td><span class="pill l${n}">${ESCUELA[n]}</span></td></tr>`).join('');
+    return `<h2>Resultado integral</h2>
+      <div class="integral">
+        <div class="ibox"><div class="ilab">Perfil integral · foco pedagógico</div>
+          <div class="ival">${c.perfil ? `Perfil ${c.perfil}: ${esc(PERFILES[c.perfil].nombre)}` : 'Por definir con juicio profesional'}</div>
+          <div class="note">Distingue, por ejemplo, si el/la estudiante tiene heurísticas altas y control bajo, o al revés; orienta la actividad didáctica.</div></div>
+        <div class="ibox"><div class="ilab">Nivel integral · foco administrativo</div>
+          <div class="ival">${ni ? `<span class="pill l${ni}">${ESCUELA[ni]}</span>` : 'Por definir'}${c.provisional ? ' <span class="note">(provisorio)</span>' : ''}</div>
+          <div class="note">Estándar administrativo de la Escuela Común Hospital de Concepción.</div></div>
+        <table class="conv"><thead><tr><th colspan="2">Conversión perfil → nivel</th></tr></thead><tbody>${filas}</tbody></table>
+      </div>`;
+  }
 
   async function seccionInforme(c) {
     const s = c.s, r = resumenEstudiante(c, false), dcn = cache.docente[s.uid] || {};
@@ -939,7 +962,7 @@
     }
     const avisos = c.flags.filter(f => !f.startsWith('Provisorio'));
     return `<section class="page">
-      <div class="top"><div><div class="brand">Educa <span>Fractalia</span></div><div class="meta">Informe de perfil metacognitivo en resolución de problemas matemáticos</div></div>
+      <div class="top"><div>${LOGO_HTML()}<div class="meta">Informe de perfil metacognitivo en resolución de problemas matemáticos</div></div>
         <div class="meta" style="text-align:right">Generado: ${today()}${c.provisional ? '<br><b style="color:#C98840">Informe provisorio</b>' : ''}</div></div>
       <h1>${esc(titleCase(s.name))}</h1>
       <div class="meta">${esc(s.id)} · ${esc(s.curso || '—')} · ${s.edad ?? '—'} años · Estadía: ${esc(typeof formatEstadia === 'function' ? formatEstadia(s.estadia) : s.estadia)}${s.aplicador ? ' · Aplicó: ' + esc(titleCase(s.aplicador)) : ''}${r.fecha_aplicacion ? ' · ' + esc(r.fecha_aplicacion) : ''}</div>
@@ -949,22 +972,38 @@
       <h2>Puntajes por dimensión (escala 1–4)</h2>
       <table><thead><tr><th>Dimensión</th><th class="n">Likert</th><th class="n">Abiertas</th><th class="n">Final</th><th>Nivel</th></tr></thead><tbody>${dimRows}</tbody></table>
       <div class="note" style="margin-top:4px">Final = promedio entre el Likert normalizado y las preguntas abiertas. Sistema de Creencias: solo Likert. Niveles: Destacado ≥ 3,40 · Competente 2,65–3,39 · Adecuado 2,00–2,64 · Insuficiente &lt; 2,00.</div>
+      ${bloqueIntegral(c)}
       <h2>Preguntas abiertas</h2>${qs}
       ${figs.length ? `<h2>Desarrollo del problema</h2><div class="imgs">${figs.join('')}</div>` : ''}
       ${dcn.hallazgos && dcn.hallazgos.trim() ? `<h2>Hallazgos adicionales</h2><div class="fb"><p>${escBR(dcn.hallazgos)}</p></div>` : ''}
       <h2>Retroalimentación formativa</h2><div class="fb"><p>${escBR(feedbackDe(c))}</p></div>
-      <div class="foot"><span>${esc(AUTORIA)}</span><span>Educa Fractalia · Laboratorio de Evaluación e Investigación en educación matemática</span></div>
+      <div class="foot"><span>${esc(AUTORIA)}</span><span>Escuela Común Hospital de Concepción · SLEP Andalién Sur</span></div>
     </section>`;
   }
 
+  // Logo del SLEP: si existe public/assets/logo-andalien-sur.png se incrusta en el informe; si no, queda el nombre en texto.
+  let logoData = null;
+  const LOGO_HTML = () => logoData ? `<img src="${logoData}" alt="SLEP Andalién Sur" style="height:46px;display:block">` : '<div class="brand">SLEP <span>Andalién Sur</span></div>';
+  async function cargarLogo() {
+    if (logoData !== null) return;
+    logoData = '';
+    try {
+      const r = await fetch('assets/logo-andalien-sur.png', { cache: 'no-cache' });
+      if (!r.ok || !/image/.test(r.headers.get('content-type') || '')) return;
+      const b = await r.blob();
+      logoData = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => res(''); fr.readAsDataURL(b); });
+    } catch (e) { logoData = ''; }
+  }
+
   async function descargarHTML(items, nombre) {
+    await cargarLogo();
     const secciones = [];
     for (const c of items) secciones.push(await seccionInforme(c));
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Informe de perfil metacognitivo · Educa Fractalia</title>
+<title>Informe de perfil metacognitivo · SLEP Andalién Sur</title>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>${REPORT_CSS}</style></head><body>
-<div class="bar"><span>Educa Fractalia · ${items.length} informe(s)</span><button onclick="window.print()">Imprimir / Guardar PDF</button></div>
+<div class="bar"><span>SLEP Andalién Sur · ${items.length} informe(s)</span><button onclick="window.print()">Imprimir / Guardar PDF</button></div>
 ${secciones.join('\n')}</body></html>`;
     descargar(new Blob([html], { type: 'text/html;charset=utf-8' }), nombre);
   }
