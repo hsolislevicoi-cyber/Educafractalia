@@ -108,17 +108,18 @@
   const primerNombre = s => titleCase(s).split(/\s+/)[0] || 'El/la estudiante';
 
   /* ───────────────────────── Persistencia ───────────────────────── */
-  const cache = { docente: {}, media: {}, unassigned: [] };
+  const cache = { docente: {}, media: {}, unassigned: [], criterios: [] };
   let pdb = null;
 
   function openPDB() {
     return new Promise(resolve => {
       try {
-        const rq = indexedDB.open('EducaFractaliaPerfil', 1);
+        const rq = indexedDB.open('EducaFractaliaPerfil', 2);
         rq.onupgradeneeded = e => {
           const d = e.target.result;
           if (!d.objectStoreNames.contains('docente')) d.createObjectStore('docente', { keyPath: 'uid' });
           if (!d.objectStoreNames.contains('media')) d.createObjectStore('media', { keyPath: 'key' });
+          if (!d.objectStoreNames.contains('criterios')) d.createObjectStore('criterios', { keyPath: 'id' });
         };
         rq.onsuccess = () => { pdb = rq.result; resolve(true); };
         rq.onerror = () => resolve(false);
@@ -143,6 +144,7 @@
     if (!ok) return;
     ((await idbAll('docente')) || []).forEach(d => { cache.docente[d.uid] = d; });
     ((await idbAll('media')) || []).forEach(m => { cache.media[m.key] = m; });
+    cache.criterios = (await idbAll('criterios')) || [];
   });
 
   function docente(uid) {
@@ -609,6 +611,83 @@
     </div>`;
   }
 
+  /* ───────────────────────── Criterios de la experta (biblioteca de criterio, sin datos de estudiantes) ───────────────────────── */
+  const criteriosActivos = () => cache.criterios.filter(c => c.activo !== false).map(c => ({ pregunta: c.pregunta, regla: c.regla, nivelIA: c.nivelIA || null, nivelFinal: c.nivelFinal || null, ejemplo: c.ejemplo || null }));
+  async function guardarCriterio(c) {
+    c.id = c.id || ('c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+    c.activo = c.activo !== false; c.creado = c.creado || new Date().toISOString();
+    const i = cache.criterios.findIndex(x => x.id === c.id);
+    if (i >= 0) cache.criterios[i] = c; else cache.criterios.push(c);
+    await idbPut('criterios', c);
+  }
+  async function borrarCriterio(id) { cache.criterios = cache.criterios.filter(c => c.id !== id); await idbDel('criterios', id); }
+  function cajaCriterio(s, q, p, dcn) {
+    const ev = evIA(s), ia = ev && (ev.estado === 'completed' || ev.estado === 'reviewed') && ev[q.key] ? ev[q.key].puntaje : null;
+    if (!p || p.origen !== 'docente' || !ia || ia === p.v) return '';
+    if (dcn.critGuardado && dcn.critGuardado[q.key]) return `<div class="oq-crit"><span class="oq-src">✓ Criterio guardado: la IA lo aplicará en las próximas evaluaciones.</span></div>`;
+    return `<div class="oq-crit"><div class="p4-mini"><b>Corregiste la propuesta de la IA (${ia} → ${p.v}).</b> ¿Qué criterio aplicaste? Se guarda como regla general, sin datos del estudiante.</div>
+      <textarea class="crit-txt" placeholder="Ej.: Decir que «algo no cuadra» no explica por qué se eligió la operación; corresponde nivel 2 salvo que relacione datos con la operación."></textarea>
+      <label class="oq-check"><input type="checkbox" class="crit-ej"> Incluir la respuesta del estudiante como ejemplo anónimo (sin nombre)</label>
+      <button class="btn btn-secondary btn-sm crit-save" data-q="${q.key}" data-ia="${ia}" data-fin="${p.v}">Guardar criterio</button></div>`;
+  }
+  function abrirCriterios() {
+    let el = $('critModal');
+    if (!el) {
+      el = document.createElement('div'); el.className = 'modal-backdrop'; el.id = 'critModal';
+      el.innerHTML = `<div class="modal"><div class="modal-header"><div><div class="modal-title">Criterios de la experta</div><div class="modal-subtitle">Reglas generales que la IA aplica al evaluar. No incluyen datos de estudiantes.</div></div><button class="modal-close" id="critClose">×</button></div>
+        <div class="modal-body" id="critBody"></div>
+        <div class="modal-footer"><button class="btn btn-ghost" id="critCerrar">Cerrar</button><div style="display:flex;gap:8px;"><button class="btn btn-secondary" id="critImp">⬆ Importar</button><button class="btn btn-secondary" id="critExp">⬇ Exportar</button></div></div></div>
+        <input type="file" id="critFile" accept="application/json" style="display:none">`;
+      document.body.appendChild(el);
+      const cerrar = () => el.classList.remove('active');
+      $('critClose').onclick = cerrar; $('critCerrar').onclick = cerrar; el.addEventListener('click', e => { if (e.target === el) cerrar(); });
+      $('critExp').onclick = () => descargar(new Blob([JSON.stringify({ esquema: 'educa-fractalia/criterios@1', generado: new Date().toISOString(), criterios: cache.criterios }, null, 2)], { type: 'application/json' }), 'Criterios_experta_' + today() + '.json');
+      $('critImp').onclick = () => $('critFile').click();
+      $('critFile').onchange = async e => {
+        try {
+          const j = JSON.parse(await e.target.files[0].text()); let n = 0;
+          for (const c of (j.criterios || [])) { if (c && c.pregunta && c.regla) { await guardarCriterio({ pregunta: c.pregunta, regla: String(c.regla), nivelIA: c.nivelIA || null, nivelFinal: c.nivelFinal || null, ejemplo: c.ejemplo || null, activo: c.activo !== false, creado: c.creado }); n++; } }
+          toast(n + ' criterio(s) importados', 'success'); renderCriterios();
+        } catch (err) { toast('Archivo de criterios no válido'); }
+        e.target.value = '';
+      };
+      el.addEventListener('click', async e => {
+        const row = e.target.closest('[data-id]');
+        if (e.target.classList.contains('cr-del') && row) { if (confirm('¿Eliminar este criterio?')) { await borrarCriterio(row.dataset.id); renderCriterios(); } }
+        if (e.target.id === 'crAdd') {
+          const q = $('crQ').value, r = $('crR').value.trim(); if (!r) { toast('Escribe el criterio'); return; }
+          await guardarCriterio({ pregunta: q, regla: r }); renderCriterios();
+        }
+      });
+      el.addEventListener('change', async e => {
+        const row = e.target.closest('[data-id]');
+        if (e.target.classList.contains('cr-on') && row) { const c = cache.criterios.find(x => x.id === row.dataset.id); if (c) { c.activo = e.target.checked; await guardarCriterio(c); } }
+      });
+      el.addEventListener('input', e => {
+        const row = e.target.closest('[data-id]');
+        if (e.target.classList.contains('cr-txt') && row) { const c = cache.criterios.find(x => x.id === row.dataset.id); if (c) { c.regla = e.target.value; clearTimeout(abrirCriterios._t); abrirCriterios._t = setTimeout(() => guardarCriterio(c), 500); } }
+      });
+    }
+    renderCriterios(); el.classList.add('active');
+  }
+  function renderCriterios() {
+    const body = $('critBody'); if (!body) return;
+    const grupos = PREGUNTAS.map(q => {
+      const l = cache.criterios.filter(c => c.pregunta === q.key);
+      if (!l.length) return '';
+      return `<div class="pf-title" style="margin-top:12px;">${q.key} · ${esc(DIMS.find(d => d.key === q.dim).name)}</div>` + l.map(c => `<div class="cr-row" data-id="${c.id}">
+        <label class="oq-check"><input type="checkbox" class="cr-on" ${c.activo !== false ? 'checked' : ''}> activo</label>
+        <textarea class="cr-txt">${esc(c.regla)}</textarea>
+        <div class="p4-mini">${c.nivelIA && c.nivelFinal ? `IA proponía ${c.nivelIA} → experta ${c.nivelFinal}` : 'agregado manualmente'}${c.ejemplo ? ` · ejemplo: «${esc(c.ejemplo)}»` : ''}
+        <button class="btn btn-ghost btn-sm cr-del">Eliminar</button></div></div>`).join('');
+    }).join('');
+    body.innerHTML = `<div class="p4-mini" style="line-height:1.5;">Cada vez que corriges una propuesta de la IA puedes guardar el criterio aplicado. La IA los recibe en cada evaluación y los prioriza. Solo se envían los criterios activos (hasta 8 por pregunta, los más recientes).</div>
+      ${grupos || '<div class="oq-a empty" style="margin-top:12px;">Aún no hay criterios. Se crean al corregir una propuesta de la IA en el perfil de un estudiante, o aquí abajo.</div>'}
+      <div class="pf-title" style="margin-top:16px;">Agregar criterio</div>
+      <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;"><select id="crQ" style="font-family:var(--font-main);padding:6px;">${PREGUNTAS.map(q => `<option value="${q.key}">${q.key}</option>`).join('')}</select>
+        <textarea id="crR" class="cr-txt" style="flex:1;min-width:240px;" placeholder="Describe el criterio general (sin nombres de estudiantes)"></textarea><button class="btn btn-primary btn-sm" id="crAdd">Agregar</button></div>`;
+  }
+
   /* ───────────────────────── Criterios de jueces ───────────────────────── */
   const CJ = window.CriteriosJuez || { PROBLEMA: {}, REGLAS: [], RUBRICA: {}, INSUMOS: {}, COMENTARIOS_P1: [], EVIDENCIA_P3B: [] };
   function operacionDeclarada(s) {
@@ -739,6 +818,7 @@
           ${p && p.origen !== 'docente' ? `<span class="oq-src">(tomado del ${p.origen})</span>` : ''}
         </div>
         ${propuestaIA(s, q)}
+        ${cajaCriterio(s, q, p, dcn)}
         ${bloqueCriterios(s, q, p, dcn)}
         <textarea class="oq-comment" data-q="${q.key}" placeholder="${q.visual ? 'Evidencia observada en el desarrollo (heurísticas)' : q.key === 'P1' ? 'Comentario del revisor: coherencia con el desarrollo' : 'Comentario del/la docente (opcional)'}">${esc((dcn.comentarios || {})[q.key] || '')}</textarea>
       </div>`;
@@ -791,6 +871,7 @@
         const q = sb.closest('.oq-card').dataset.q, n = parseInt(sb.dataset.score, 10);
         const d = docente(s.uid);
         if (d.scores[q] === n) delete d.scores[q]; else d.scores[q] = n;
+        if (d.critGuardado) delete d.critGuardado[q];
         renderPerfil();                                   // la pantalla responde de inmediato
         saveDocente(s.uid).then(flashSaved); return;
       }
@@ -826,6 +907,17 @@
       }
       if (e.target.classList.contains('pf-zoom')) {
         $('p4Lightbox').querySelector('img').src = e.target.src; $('p4Lightbox').classList.add('active'); return;
+      }
+      const cs = e.target.closest('.crit-save');
+      if (cs) {
+        const box = cs.closest('.oq-crit'), regla = box.querySelector('.crit-txt').value.trim();
+        if (!regla) { toast('Escribe el criterio aplicado'); return; }
+        const qk = cs.dataset.q, qd = PREGUNTAS.find(x => x.key === qk), d = docente(s.uid);
+        const conEj = box.querySelector('.crit-ej').checked && qd && qd.field ? ((s.openAnswers || {})[qd.field] || '').slice(0, 300) : null;
+        await guardarCriterio({ pregunta: qk, regla, nivelIA: parseInt(cs.dataset.ia, 10), nivelFinal: parseInt(cs.dataset.fin, 10), ejemplo: conEj || null });
+        d.critGuardado = d.critGuardado || {}; d.critGuardado[qk] = true;
+        toast('Criterio guardado. La IA lo aplicará desde ahora.', 'success');
+        renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
       }
       const fr = e.target.closest('.fb-reset');
       if (fr) {
@@ -1113,6 +1205,7 @@ ${secciones.join('\n')}</body></html>`;
       const tr = e.target.closest('tr[data-uid]'); if (tr) openPerfil(tr.dataset.uid);
     });
     $('p4UploadImgs').addEventListener('click', () => $('p4ImgInput').click());
+    $('p4Criterios').addEventListener('click', async () => { await ready; abrirCriterios(); });
     $('p4EvalAll').addEventListener('click', async () => {
       if (typeof evaluateStudent !== 'function' || !state.apiReady) { toast('La IA no está conectada'); return; }
       const pend = state.students.filter(s => { const ev = evIA(s); return !ev || (ev.estado !== 'completed' && ev.estado !== 'reviewed'); });
@@ -1197,5 +1290,5 @@ ${secciones.join('\n')}</body></html>`;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
 
   // Expuesto para pruebas y para integrar con otros módulos
-  window.PerfilIntegral = { compute, asignarPerfil, nivelDe, feedbackAuto, refresh, PERFILES, _cache: cache };
+  window.PerfilIntegral = { criteriosActivos, compute, asignarPerfil, nivelDe, feedbackAuto, refresh, PERFILES, _cache: cache };
 })();

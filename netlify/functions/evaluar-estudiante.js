@@ -151,7 +151,13 @@ Responde SOLO con el JSON, sin texto adicional.`;
 // ═════════════════════════════════════════════════════════════════
 // PROMPT 2: Evaluación de las 6 dimensiones de preguntas abiertas
 // ═════════════════════════════════════════════════════════════════
-function construirPromptEvaluacion({ respuestas, descripcionDesarrollo, bibliotecaCriterios }) {
+function construirPromptEvaluacion({ respuestas, descripcionDesarrollo, bibliotecaCriterios, criteriosExperta }) {
+  const _cr = Array.isArray(criteriosExperta) ? criteriosExperta : [];
+  const _bloqueCriterios = _cr.length ? ['P1','P2','P3a','P3b','P4','P5'].map(q => {
+    const l = _cr.filter(c => c && c.pregunta === q && c.regla).slice(-8);
+    if (!l.length) return '';
+    return `Para ${q}:\n` + l.map(c => `- Regla: ${String(c.regla).slice(0, 500)}${c.nivelIA && c.nivelFinal ? ` (la IA solía proponer ${c.nivelIA}; la experta fijó ${c.nivelFinal})` : ''}${c.ejemplo ? `\n  Ejemplo anónimo de respuesta: "${String(c.ejemplo).slice(0, 300)}"` : ''}`).join('\n');
+  }).filter(Boolean).join('\n\n') : '';
   const systemPrompt = `Eres un investigador experto en didáctica de la matemática y evaluación metacognitiva, actuando como JUEZ CIEGO en el marco del proyecto Educa Fractalia, dirigido por Mg. Alejandra Solís Levicoi (UdeC). Tu tarea es evaluar las respuestas abiertas y el desarrollo de un estudiante aplicando una rúbrica validada.
 
 ═══════════════════════════════════════════════════════════════
@@ -264,6 +270,12 @@ ZONA DE TRANSICIÓN FLEXIBLE
 Cuando un puntaje promedio de una dimensión quede en el rango 2.55-2.65 (entre medio-bajo y medio-alto), NO redondees automáticamente. Marca el caso como "revisar con evidencia cualitativa". Esto aplica solo a Rec, Heu y Con (no a Sist. Creencias).
 
 ═══════════════════════════════════════════════════════════════
+CRITERIOS DE LA EXPERTA (reglas generales fijadas por la investigadora al revisar casos reales; tienen prioridad sobre tu criterio por defecto y se aplican a cualquier estudiante)
+═══════════════════════════════════════════════════════════════
+
+${_bloqueCriterios || 'Aún no hay criterios registrados.'}
+
+═══════════════════════════════════════════════════════════════
 BIBLIOTECA DE CRITERIOS ACUMULATIVOS
 ═══════════════════════════════════════════════════════════════
 
@@ -271,7 +283,6 @@ ${bibliotecaCriterios && bibliotecaCriterios.length > 0 ? `
 Correcciones previas realizadas por la experta en casos similares:
 ${bibliotecaCriterios.slice(-10).map((c, i) => `
 Corrección ${i+1}:
-- Input: ${c.input_resumen}
 - Propuesta IA: ${c.propuesta_ia_puntaje} ("${c.propuesta_ia_comentario?.substring(0,100)}")
 - Corrección experta: ${c.correccion_puntaje} ("${c.correccion_comentario?.substring(0,100)}")
 - Razón: ${c.razon || 'no especificada'}
