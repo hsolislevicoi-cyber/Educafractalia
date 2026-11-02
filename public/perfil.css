@@ -148,3 +148,6 @@
 .rub-row.sel { background: var(--ef-blue-lightest); border-left: 3px solid var(--ef-blue-dark); }
 .pf-reglas { margin: 8px 0 0 18px; padding: 0; font-size: 12px; line-height: 1.5; }
 .p4-un-bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+.oq-crit { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--level-medio-bajo); background: var(--level-medio-bajo-bg); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; display: grid; gap: 6px; }
+.crit-txt, .cr-txt { width: 100%; font-family: var(--font-main); font-size: 12.5px; border: 1px solid var(--ef-border); border-radius: var(--radius-sm); padding: 7px 9px; min-height: 52px; resize: vertical; }
+.cr-row { border: 1px solid var(--ef-border-soft); border-radius: var(--radius); padding: 8px 10px; margin-top: 8px; display: grid; gap: 6px; }

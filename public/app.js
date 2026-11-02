@@ -1038,7 +1038,8 @@ async function evaluateStudent(studentId, options = {}) {
     const evaluation = await callEvaluator('evaluar_respuestas', {
       respuestas: s.openAnswers,
       descripcionDesarrollo: desarrolloDesc,
-      bibliotecaCriterios: state.bibliotecaCriterios
+      bibliotecaCriterios: state.bibliotecaCriterios,
+      criteriosExperta: (window.PerfilIntegral && window.PerfilIntegral.criteriosActivos) ? window.PerfilIntegral.criteriosActivos() : []
     });
 
     // Guardar evaluación
