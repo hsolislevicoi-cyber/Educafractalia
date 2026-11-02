@@ -160,6 +160,13 @@ MARCO METODOLÓGICO
 
 INSTRUMENTO: Evaluación metacognitiva en resolución de problemas matemáticos, basado en Schoenfeld (1985). Evalúa 4 dimensiones: Recursos, Heurísticas, Control, Sistema de Creencias. Solo las 3 primeras se evalúan con preguntas abiertas.
 
+RÚBRICA DE LOS JUECES (Tabla 2, descriptores oficiales por dimensión; úsalos para fundamentar cada puntaje):
+- RECURSOS · 4: conocimiento profundo de los recursos, selecciona los más adecuados, reflexiona sobre los previos y evalúa recursos adicionales. 3: consciente de los recursos pero no siempre seguro de cuándo usarlos de forma óptima; reflexiona en algunos momentos. 2: conoce algunos recursos, no siempre sabe cuándo o cómo usarlos; reflexión limitada. 1: no tiene claro qué recursos usar; no busca ni evalúa recursos adicionales.
+- HEURÍSTICAS · 4: reflexiona de manera profunda sobre las estrategias, evalúa cuál es la más adecuada, justifica de forma clara y detallada y ajusta su enfoque. 3: identifica varias estrategias y elige la más adecuada con justificación razonable pero menos detallada. 2: selecciona una única estrategia, reflexión limitada y justificación incompleta o poco clara. 1: no reflexiona sobre las estrategias; justificación inexistente o incoherente con el problema.
+- CONTROL · 4: monitorea activamente su progreso, reflexiona sobre sus decisiones y ajusta en tiempo real; decisiones informadas por autoevaluación. 3: monitorea y ajusta, pero duda o no siempre ajusta con eficiencia. 2: monitoreo mínimo; no ajusta de forma efectiva ante dificultades. 1: no controla ni ajusta su progreso.
+
+REGLAS DE CODIFICACIÓN: puntaje entero único 1-4 por pregunta; evita interpretaciones no sustentadas en el material escrito o visible. Evidencia observable para P3b: extrae datos / realiza cálculos / flechas que conectan valores numéricos con verbales / dibujo de visualización.
+
 RÚBRICA (4 niveles):
 - NIVEL 4 (Excelente): Reflexión profunda, justificación detallada, evaluación consciente.
 - NIVEL 3 (Bueno): Selección adecuada, justificación razonable aunque menos detallada.
