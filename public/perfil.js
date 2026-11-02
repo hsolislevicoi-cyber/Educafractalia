@@ -210,11 +210,31 @@
     return null;
   }
 
+  /** Caso atípico: propone el perfil cuyas reglas quedan a menor distancia (en puntos de la escala 1–4). Solo propuesta; la docente decide. */
+  function proponerPerfil(dims) {
+    const v = k => dims[k].score;
+    const below = (x, th) => Math.max(0, th - x), above = (x, th) => Math.max(0, x - th);
+    const T3 = 2.65, T4 = 3.40;
+    const dist = {
+      A: below(v('con'), T4) + below(v('sc'), T4),
+      B: below(v('rec'), T3) + below(v('heu'), T3) + Math.min(above(v('con'), T3), above(v('sc'), T3)),
+      C: below(v('con'), T3) + below(v('sc'), T3) + above(v('rec'), T3) + above(v('heu'), T3),
+      D: ['rec', 'heu', 'con', 'sc'].reduce((a, k) => a + below(v(k), 2.0) + above(v(k), T4), 0),
+      E: above(v('con'), T3) + above(v('sc'), T3) + Math.min(above(v('rec'), T3), above(v('heu'), T3))
+    };
+    const orden = Object.keys(dist).sort((a, b) => dist[a] - dist[b]);
+    const [p1, p2] = orden;
+    return { perfil: p1, distancia: r2(dist[p1]), alternativo: dist[p2] - dist[p1] <= 0.05 ? p2 : null, distanciaAlt: r2(dist[p2]) };
+  }
+
   function compute(s) {
     const dims = {};
     DIMS.forEach(d => { dims[d.key] = calcDim(s, d); });
     const lv = { rec: dims.rec.nivel, heu: dims.heu.nivel, con: dims.con.nivel, sc: dims.sc.nivel };
-    const perfil = asignarPerfil(lv);
+    const perfilMatriz = asignarPerfil(lv);
+    const dd = cache.docente[s.uid];
+    const perfilDocente = dd && dd.perfilDocente && PERFILES[dd.perfilDocente] ? dd.perfilDocente : null;
+    const perfil = perfilDocente || perfilMatriz;
 
     // ¿Cambiaría el perfil si las dimensiones en zona de transición se leen hacia el otro lado?
     const trans = DIMS.filter(d => dims[d.key].transicion).map(d => d.key);
@@ -241,22 +261,26 @@
       if (x.imputado) flags.push(`${d.name}: hay respuestas Likert faltantes; el puntaje usa el promedio de las respondidas.`);
     });
     if (alternativos.size) flags.push(`Si la zona de transición se interpreta hacia el otro nivel, el perfil podría ser ${[...alternativos].sort().map(p => 'Perfil ' + p).join(' o ')}.`);
-    if (!perfil && Object.values(lv).every(x => x !== null)) flags.push('Esta combinación de niveles no está cubierta por ninguna regla de la matriz de perfiles (caso atípico): requiere juicio profesional.');
+    const completo = Object.values(lv).every(x => x !== null);
+    if (perfilDocente) flags.push('Perfil asignado por la docente' + (perfilMatriz && perfilMatriz !== perfilDocente ? ` (la matriz indicaba Perfil ${perfilMatriz})` : '') + '.');
+    if (!perfil && completo) flags.push('Esta combinación de niveles no está cubierta por ninguna regla de la matriz de perfiles (caso atípico): requiere juicio profesional.');
     if (Object.values(lv).some(x => x === null)) flags.push('Faltan puntajes Likert para asignar un perfil.');
 
+    const provisional = evaluadas < totalAbiertas;
+    const propuesta = (!perfil && completo && !provisional) ? proponerPerfil(dims) : null;
     return {
-      s, dims, lv, perfil, alternativos: [...alternativos].sort(), flags,
+      s, dims, lv, perfil, perfilMatriz, perfilDocente, propuesta, alternativos: [...alternativos].sort(), flags,
       evaluadas, totalAbiertas,
-      provisional: evaluadas < totalAbiertas,
-      revision: flags.some(f => !f.startsWith('Provisorio')) || (!perfil)
+      provisional,
+      revision: flags.some(f => !f.startsWith('Provisorio') && !f.startsWith('Perfil asignado')) || (!perfil)
     };
   }
 
   /* ───────────────────────── Retroalimentación automática ───────────────────────── */
-  function feedbackAuto(c) {
+  function feedbackPartes(c) {
     const nombre = primerNombre(c.s.name);
     const dl = DIMS.map(d => ({ name: d.name, n: c.dims[d.key].nivel, sc: c.dims[d.key].score })).filter(x => x.n !== null);
-    if (!dl.length) return 'Aún no hay puntajes suficientes para redactar una retroalimentación.';
+    if (!dl.length) return { up: 'Aún no hay puntajes suficientes para redactar una retroalimentación.', back: '', fwd: '' };
     const max = Math.max(...dl.map(x => x.n)), min = Math.min(...dl.map(x => x.n));
     const fuertes = dl.filter(x => x.n === max).map(x => x.name);
     const debiles = dl.filter(x => x.n === min).map(x => x.name);
@@ -273,12 +297,27 @@
     const fwd = p
       ? 'Cómo seguir: ' + p.pasos.map((x, i) => `${i + 1}) ${x}`).join(' ')
       : 'Cómo seguir: definir en conjunto con el/la docente una primera meta de trabajo, partiendo por la dimensión de menor nivel.';
-    return [up, back, fwd].join('\n\n');
+    return { up, back, fwd };
   }
-  const feedbackDe = c => {
-    const d = cache.docente[c.s.uid];
-    return d && d.feedback ? d.feedback : feedbackAuto(c);
-  };
+  const feedbackAuto = c => { const f = feedbackPartes(c); return [f.up, f.back, f.fwd].filter(Boolean).join('\n\n'); };
+  /** Firma de lo que alimenta el texto automático: si cambia, un texto editado a mano queda desactualizado. */
+  const firmaFb = c => DIMS.map(d => c.dims[d.key].nivel).join('') + '|' + (c.perfil || '-');
+  /** Textos editados a mano por parte (up/back/fwd). El texto antiguo de una sola pieza se migra: solo se conserva su "Cómo seguir". */
+  function fbEditado(c) {
+    const d = cache.docente[c.s.uid]; if (!d) return {};
+    if (d.feedback && !d.fb) {
+      const partes = String(d.feedback).split(/\n\s*\n/), auto = feedbackPartes(c);
+      d.fb = {}; d.fbSig = {};
+      if (partes.length === 3 && partes[2].trim() && partes[2].trim() !== auto.fwd.trim()) { d.fb.fwd = partes[2].trim(); d.fbSig.fwd = firmaFb(c); }
+      d.feedback = null; saveDocente(d.uid);
+    }
+    return d.fb || {};
+  }
+  function feedbackDe(c) {
+    const f = feedbackPartes(c), ed = fbEditado(c), d = cache.docente[c.s.uid] || {};
+    ['up', 'back', 'fwd'].forEach(k => { if (ed[k] && ed[k].trim()) f[k] = ed[k]; });
+    return [f.up, f.back, f.fwd].filter(Boolean).join('\n\n');
+  }
 
   /* ───────────────────────── Imágenes ───────────────────────── */
   const mediaKey = (uid, tipo) => uid + '|' + tipo;
@@ -640,13 +679,27 @@
       </tr>`;
     }).join('');
 
-    const perfilBlock = c.perfil
-      ? `<span class="perfil-pill ${c.perfil}"><span class="letter">${c.perfil}</span>Perfil ${c.perfil}${c.provisional ? ' · provisorio' : ''}</span>
+    const selPerfil = `<div style="margin-top:10px;font-size:12px;"><label><b>Perfil definido por la docente:</b>
+        <select id="pfPerfilSel" style="font-family:var(--font-main);font-size:12px;padding:4px 8px;border:1px solid var(--ef-border);border-radius:var(--radius-sm);">
+          <option value="">${c.perfilDocente ? '— quitar (usar la matriz) —' : '— según la matriz —'}</option>
+          ${Object.keys(PERFILES).map(k => `<option value="${k}" ${c.perfilDocente === k ? 'selected' : ''}>Perfil ${k} · ${esc(PERFILES[k].nombre)}</option>`).join('')}
+        </select></label></div>`;
+    let propBlock = '';
+    if (c.propuesta) {
+      const P = c.propuesta;
+      propBlock = `<div class="pf-flag" style="margin-top:10px;"><b>Propuesta de perfil (caso atípico, preguntas abiertas visadas):</b> Perfil ${P.perfil} · ${esc(PERFILES[P.perfil].nombre)}.
+        Es el perfil cuyas reglas quedan más cerca de los puntajes (diferencia ${fmt(P.distancia)} puntos)${P.alternativo ? `; alternativa muy cercana: Perfil ${P.alternativo} (${fmt(P.distanciaAlt)})` : ''}.
+        <div style="margin-top:6px;"><button class="btn btn-primary btn-sm" id="pfConfirmarProp">Confirmar Perfil ${P.perfil}</button> <span class="p4-mini">o elige otro abajo.</span></div></div>`;
+    } else if (!c.perfil && c.provisional) {
+      propBlock = `<div class="p4-mini" style="margin-top:8px;">Cuando visés las 6 preguntas abiertas se propondrá un perfil para este caso.</div>`;
+    }
+    const perfilBlock = (c.perfil
+      ? `<span class="perfil-pill ${c.perfil}"><span class="letter">${c.perfil}</span>Perfil ${c.perfil}${c.provisional ? ' · provisorio' : ''}${c.perfilDocente ? ' · definido por docente' : ''}</span>
          <div class="pf-profile-name">${esc(PERFILES[c.perfil].nombre)}</div>
          <div class="pf-profile-desc">${esc(PERFILES[c.perfil].desc)}</div>
          <div class="pf-profile-desc" style="margin-top:8px;"><b>Nivel integral (administrativo):</b> ${ESCUELA[nivelIntegral(c.perfil)]}</div>`
       : `<span class="perfil-pill none"><span class="letter">?</span>Sin perfil directo</span>
-         <div class="pf-profile-desc" style="margin-top:8px;">La combinación de niveles no corresponde a una regla de la matriz o faltan datos. Se sugiere asignarlo con juicio profesional.</div>`;
+         <div class="pf-profile-desc" style="margin-top:8px;">La combinación de niveles no corresponde a una regla de la matriz o faltan datos.</div>`) + propBlock + selPerfil;
 
     const flagsHTML = c.flags.length ? `<div class="pf-flags">${c.flags.map(f => `<div class="pf-flag">${esc(f)}</div>`).join('')}</div>` : '';
 
@@ -709,10 +762,17 @@
         <div class="pf-block"><div class="pf-title">Hallazgos adicionales <span class="p4-mini">(descripción objetiva del/la estudiante)</span></div>
           <textarea class="pf-feedback" id="pfHallazgos" style="min-height:90px;" placeholder="Anota todo hallazgo, sustentado en evidencia escrita, que describa objetivamente al/la estudiante según los criterios.">${esc(dcn.hallazgos || '')}</textarea></div>
         <div class="pf-block"><div class="pf-title">Retroalimentación formativa <span id="pfSaved" class="pf-saved"></span></div>
-          <textarea class="pf-feedback" id="pfFeedback">${esc(feedbackDe(c))}</textarea>
-          <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
-            <button class="btn btn-ghost btn-sm" id="pfFeedbackReset">Restablecer texto automático</button>
-            <span class="p4-mini">${dcn.feedback ? 'Texto editado por el/la docente' : 'Texto automático — puedes editarlo'}</span></div></div>
+          ${(() => {
+            const auto = feedbackPartes(c), ed = fbEditado(c), sig = firmaFb(c), dd = cache.docente[s.uid] || {};
+            return [['up', 'Hacia dónde vamos'], ['back', 'Dónde está hoy'], ['fwd', 'Cómo seguir']].map(([k, lab]) => {
+              const editado = !!(ed[k] && ed[k].trim()), viejo = editado && (dd.fbSig || {})[k] !== sig;
+              return `<div class="fb-part"><div class="p4-mini"><b>${lab}</b> · ${editado ? 'editado por el/la docente' : 'se actualiza solo con los puntajes'}
+                ${editado ? `<button class="btn btn-ghost btn-sm fb-reset" data-part="${k}">Volver al texto automático</button>` : ''}</div>
+                ${viejo ? '<div class="pf-flag">Los puntajes cambiaron después de que editaste este texto: revísalo o vuelve al texto automático.</div>' : ''}
+                <textarea class="pf-feedback fb-ta" data-part="${k}" style="min-height:${k === 'fwd' ? 110 : 80}px">${esc(editado ? ed[k] : auto[k])}</textarea></div>`;
+            }).join('');
+          })()}
+        </div>
       </div>
     </div>`;
     body.scrollTop = keepScroll;
@@ -767,12 +827,24 @@
       if (e.target.classList.contains('pf-zoom')) {
         $('p4Lightbox').querySelector('img').src = e.target.src; $('p4Lightbox').classList.add('active'); return;
       }
-      if (e.target.id === 'pfFeedbackReset') {
-        const d = docente(s.uid); d.feedback = null; renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
+      const fr = e.target.closest('.fb-reset');
+      if (fr) {
+        const d = docente(s.uid); d.fb = d.fb || {}; d.fbSig = d.fbSig || {};
+        delete d.fb[fr.dataset.part]; delete d.fbSig[fr.dataset.part]; d.feedback = null;
+        renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
+      }
+      if (e.target.id === 'pfConfirmarProp') {
+        const c0 = compute(s); if (!c0.propuesta) return;
+        const d = docente(s.uid); d.perfilDocente = c0.propuesta.perfil;
+        renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
       }
     });
     body.addEventListener('change', async e => {
       const s = state.students.find(x => x.uid === currentUid);
+      if (s && e.target.id === 'pfPerfilSel') {
+        const d = docente(s.uid); d.perfilDocente = e.target.value || null;
+        renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
+      }
       if (s && e.target.classList.contains('ev-chk')) {
         const d = docente(s.uid); d.evidencia = d.evidencia || {};
         const set = new Set(d.evidencia.P3b || []);
@@ -800,8 +872,9 @@
       } else if (e.target.id === 'pfHallazgos') {
         const d = docente(s.uid); d.hallazgos = e.target.value;
         clearTimeout(t); t = setTimeout(async () => { await saveDocente(s.uid); flashSaved(); }, 500);
-      } else if (e.target.id === 'pfFeedback') {
-        const d = docente(s.uid); d.feedback = e.target.value;
+      } else if (e.target.classList.contains('fb-ta')) {
+        const d = docente(s.uid); d.fb = d.fb || {}; d.fbSig = d.fbSig || {}; d.feedback = null;
+        d.fb[e.target.dataset.part] = e.target.value; d.fbSig[e.target.dataset.part] = firmaFb(compute(s));
         clearTimeout(t); t = setTimeout(async () => { await saveDocente(s.uid); flashSaved(); }, 500);
       }
     });
@@ -833,7 +906,7 @@
         o[d.key] = { nombre: d.name, likert: x.likert, abiertas: x.abiertas, puntaje: x.score, nivel: x.nivel, nivel_escuela: x.nivel ? ESCUELA[x.nivel] : null, nivel_tecnico: x.nivel ? TECNICO[x.nivel] : null, provisorio: x.provisional };
         return o;
       }, {}),
-      perfil: { codigo: c.perfil, nombre: c.perfil ? PERFILES[c.perfil].nombre : null, nivel_integral_administrativo: nivelIntegral(c.perfil) ? ESCUELA[nivelIntegral(c.perfil)] : null, provisorio: c.provisional, alternativos: c.alternativos, requiere_revision: c.revision, avisos: c.flags },
+      perfil: { codigo: c.perfil, nombre: c.perfil ? PERFILES[c.perfil].nombre : null, nivel_integral_administrativo: nivelIntegral(c.perfil) ? ESCUELA[nivelIntegral(c.perfil)] : null, origen: c.perfilDocente ? 'docente' : (c.perfil ? 'matriz' : null), propuesta: c.propuesta ? { codigo: c.propuesta.perfil, alternativo: c.propuesta.alternativo, distancia: c.propuesta.distancia } : null, provisorio: c.provisional, alternativos: c.alternativos, requiere_revision: c.revision, avisos: c.flags },
       preguntas_abiertas: PREGUNTAS.map(q => {
         const p = puntajeAbierta(s, q.key), d = cache.docente[s.uid];
         return { codigo: q.key, dimension: DIMS.find(x => x.key === q.dim).name, pregunta: q.texto, respuesta: q.field ? ((s.openAnswers || {})[q.field] || '') : null, puntaje: p ? p.v : null, nivel_escuela: p ? ESCUELA[p.v] : null, origen_puntaje: p ? p.origen : null, comentario: (d && d.comentarios && d.comentarios[q.key]) || '', insumo_evaluador: CJ.INSUMOS[q.key] || null, evidencia_observada: q.key === 'P3b' ? ((d && d.evidencia && d.evidencia.P3b) || []) : undefined };
@@ -922,38 +995,58 @@
   .ibox{border:1px solid var(--line);border-left:4px solid var(--navy);border-radius:6px;padding:8px 12px;background:var(--bg)}
   .ilab{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mid);font-weight:600}.ival{font-size:14px;font-weight:600;color:var(--navy);margin:3px 0}
   .conv{grid-column:1/3;width:50%;font-size:11px}.conv th{padding:3px 6px}.conv td{padding:3px 6px}.conv tr.sel td{background:#EDF1F9}
+  .adj{color:#C98840;font-weight:600}.okr{color:#2E6B4A;font-weight:600}
   .warn{background:#F9F1E5;border-left:3px solid #C98840;padding:6px 10px;margin-top:6px;font-size:11.5px;color:#7a531f}
   @media print{.bar{display:none}.page{padding:0;max-width:none}@page{size:A4;margin:14mm}}`;
 
   function bloqueIntegral(c) {
-    const ni = nivelIntegral(c.perfil);
-    const filas = [['A', 4], ['B', 3], ['C', 3], ['D', 2], ['E', 1]].map(([pf, n]) => `<tr${c.perfil === pf ? ' class="sel"' : ''}><td>Perfil ${pf}</td><td><span class="pill l${n}">${ESCUELA[n]}</span></td></tr>`).join('');
-    return `<h2>Resultado integral</h2>
-      <div class="integral">
+    const ni = nivelIntegral(c.perfil), P = c.propuesta;
+    const niProp = P ? nivelIntegral(P.perfil) : null;
+    const filas = [['A', 4], ['B', 3], ['C', 3], ['D', 2], ['E', 1]].map(([pf, n]) => `<tr${(c.perfil || (P && P.perfil)) === pf ? ' class="sel"' : ''}><td>Perfil ${pf}</td><td><span class="pill l${n}">${ESCUELA[n]}</span></td></tr>`).join('');
+    const perfilTxt = c.perfil
+      ? `Perfil ${c.perfil}: ${esc(PERFILES[c.perfil].nombre)}${c.perfilDocente ? ' <span class="note">(definido por la docente)</span>' : ''}`
+      : P ? `<span class="note">Propuesta, a validar por la docente:</span><br>Perfil ${P.perfil}: ${esc(PERFILES[P.perfil].nombre)}`
+          : 'Por definir con juicio profesional';
+    const nivelTxt = ni ? `<span class="pill l${ni}">${ESCUELA[ni]}</span>`
+      : niProp ? `<span class="note">Propuesto, por confirmar:</span> <span class="pill l${niProp}">${ESCUELA[niProp]}</span>` : 'Por definir';
+    const desc = c.perfil ? esc(PERFILES[c.perfil].desc) : (P ? esc(PERFILES[P.perfil].desc) : '');
+    return `<div class="integral">
         <div class="ibox"><div class="ilab">Perfil integral · foco pedagógico</div>
-          <div class="ival">${c.perfil ? `Perfil ${c.perfil}: ${esc(PERFILES[c.perfil].nombre)}` : 'Por definir con juicio profesional'}</div>
-          <div class="note">Distingue, por ejemplo, si el/la estudiante tiene heurísticas altas y control bajo, o al revés; orienta la actividad didáctica.</div></div>
+          <div class="ival">${perfilTxt}</div>
+          <div class="note">${desc ? desc + ' ' : ''}Distingue, por ejemplo, si hay heurísticas altas y control bajo, o al revés; orienta la actividad didáctica.</div></div>
         <div class="ibox"><div class="ilab">Nivel integral · foco administrativo</div>
-          <div class="ival">${ni ? `<span class="pill l${ni}">${ESCUELA[ni]}</span>` : 'Por definir'}${c.provisional ? ' <span class="note">(provisorio)</span>' : ''}</div>
+          <div class="ival">${nivelTxt}${c.provisional ? ' <span class="note">(provisorio)</span>' : ''}</div>
           <div class="note">Estándar administrativo de la Escuela Común Hospital de Concepción.</div></div>
         <table class="conv"><thead><tr><th colspan="2">Conversión perfil → nivel</th></tr></thead><tbody>${filas}</tbody></table>
       </div>`;
   }
 
   async function seccionInforme(c) {
-    const s = c.s, r = resumenEstudiante(c, false), dcn = cache.docente[s.uid] || {};
-    const dimRows = DIMS.map(d => {
+    const s = c.s, r = resumenEstudiante(c, false), dcn = cache.docente[s.uid] || {}, ev = evIA(s);
+    const evOk = ev && (ev.estado === 'completed' || ev.estado === 'reviewed');
+    const pillN = n => n ? `<span class="pill l${n}">${ESCUELA[n]}</span>` : '—';
+    const likRows = DIMS.map(d => { const x = c.dims[d.key]; const n = nivelDe(x.likert); return `<tr><td>${esc(d.name)}</td><td class="n">${fmt(x.likert)}</td><td>${n ? pillN(n) + ` <span class="note">${TECNICO[n]}</span>` : '—'}</td></tr>`; }).join('');
+    const abRows = DIMS.filter(d => d.open.length).map(d => { const x = c.dims[d.key]; const n = nivelDe(x.abiertas); return `<tr><td>${esc(d.name)}</td><td class="n">${fmt(x.abiertas)}</td><td>${n ? pillN(n) + ` <span class="note">${x.nAbiertas}/${x.nAbiertasTotal} preguntas</span>` : '<span class="note">sin evaluar</span>'}</td></tr>`; }).join('');
+    const finRows = DIMS.map(d => {
       const x = c.dims[d.key];
-      return `<tr><td>${esc(d.name)}</td><td class="n">${fmt(x.likert)}</td><td class="n">${d.open.length ? fmt(x.abiertas) : '—'}</td><td class="n"><b>${fmt(x.score)}</b></td><td>${x.nivel ? `<span class="pill l${x.nivel}">${ESCUELA[x.nivel]}</span> <span class="note">${TECNICO[x.nivel]}${x.provisional ? ' · provisorio' : ''}</span>` : '—'}</td></tr>`;
+      return `<tr><td>${esc(d.name)}</td><td class="n">${fmt(x.likert)}</td><td class="n">${d.open.length ? fmt(x.abiertas) : '—'}</td><td class="n"><b>${fmt(x.score)}</b></td><td>${x.nivel ? `${pillN(x.nivel)} <span class="note">${TECNICO[x.nivel]}${x.provisional ? ' · provisorio' : ''}</span>` : '—'}</td></tr>`;
     }).join('');
     const qs = PREGUNTAS.map(q => {
       const p = puntajeAbierta(s, q.key);
       const resp = q.field ? ((s.openAnswers || {})[q.field] || '') : null;
+      const ia = evOk && ev[q.key] && ev[q.key].puntaje ? ev[q.key].puntaje : null;
+      let rev = '';
+      if (p && p.origen === 'docente') {
+        if (ia && ia !== p.v) rev = `<div class="qc"><span class="adj">Ajustado en la revisión docente</span> · propuesta inicial con IA: ${ia} (${ESCUELA[ia]}) → puntaje final: <b>${p.v} (${ESCUELA[p.v]})</b></div>`;
+        else if (ia) rev = `<div class="qc"><span class="okr">Propuesta con IA confirmada en la revisión docente</span></div>`;
+        else rev = `<div class="qc"><span class="okr">Puntaje asignado en la revisión docente</span></div>`;
+      }
       return `<div class="q"><div class="qh"><span><b>${q.key}</b> · ${esc(DIMS.find(d => d.key === q.dim).name)}</span><span>${p ? `<span class="pill l${p.v}">${ESCUELA[p.v]} (${p.v})</span>` : 'sin evaluar'}</span></div>
         <div class="qt">${esc(q.texto)}</div>
         <div class="qa">${resp === null ? '<i>Se evalúa a partir del dibujo o la foto del desarrollo.</i>' : (resp ? esc(resp) : '<i>[sin respuesta]</i>')}</div>
+        ${rev}
         ${q.key === 'P3b' && dcn.evidencia && dcn.evidencia.P3b && dcn.evidencia.P3b.length ? `<div class="qc"><b>Evidencia observada:</b> ${esc(dcn.evidencia.P3b.join(' · '))}</div>` : ''}
-        ${dcn.comentarios && dcn.comentarios[q.key] ? `<div class="qc"><b>${q.visual || q.key === 'P1' ? 'Comentario del revisor' : 'Comentario docente'}:</b> ${escBR(dcn.comentarios[q.key])}</div>` : ''}</div>`;
+        ${dcn.comentarios && dcn.comentarios[q.key] ? `<div class="qc"><b>Fundamento de la revisión:</b> ${escBR(dcn.comentarios[q.key])}</div>` : ''}</div>`;
     }).join('');
     const figs = [];
     for (const [tipo, tit] of [['dibujo', 'Dibujo en tablet'], ['foto', 'Foto del papel']]) {
@@ -966,16 +1059,19 @@
         <div class="meta" style="text-align:right">Generado: ${today()}${c.provisional ? '<br><b style="color:#C98840">Informe provisorio</b>' : ''}</div></div>
       <h1>${esc(titleCase(s.name))}</h1>
       <div class="meta">${esc(s.id)} · ${esc(s.curso || '—')} · ${s.edad ?? '—'} años · Estadía: ${esc(typeof formatEstadia === 'function' ? formatEstadia(s.estadia) : s.estadia)}${s.aplicador ? ' · Aplicó: ' + esc(titleCase(s.aplicador)) : ''}${r.fecha_aplicacion ? ' · ' + esc(r.fecha_aplicacion) : ''}</div>
-      <h2>Perfil</h2>
-      <div class="perfil">${c.perfil ? `<div class="pn">Perfil ${c.perfil}: ${esc(PERFILES[c.perfil].nombre)}</div><div class="pd">${esc(PERFILES[c.perfil].desc)}</div>` : '<div class="pn">Perfil por definir con juicio profesional</div>'}
-        ${avisos.map(a => `<div class="warn">${esc(a)}</div>`).join('')}</div>
-      <h2>Puntajes por dimensión (escala 1–4)</h2>
-      <table><thead><tr><th>Dimensión</th><th class="n">Likert</th><th class="n">Abiertas</th><th class="n">Final</th><th>Nivel</th></tr></thead><tbody>${dimRows}</tbody></table>
+      <h2>1 · Puntajes Likert (escala 1–4)</h2>
+      <table><thead><tr><th>Dimensión</th><th class="n">Puntaje</th><th>Nivel</th></tr></thead><tbody>${likRows}</tbody></table>
+      <h2>2 · Preguntas abiertas</h2>
+      <table><thead><tr><th>Dimensión</th><th class="n">Promedio</th><th>Nivel</th></tr></thead><tbody>${abRows}</tbody></table>
+      <div style="margin-top:8px">${qs}</div>
+      ${figs.length ? `<div class="imgs">${figs.join('')}</div>` : ''}
+      ${dcn.hallazgos && dcn.hallazgos.trim() ? `<div class="qc" style="margin-top:8px"><b>Hallazgos adicionales:</b> ${escBR(dcn.hallazgos)}</div>` : ''}
+      <h2>3 · Triangulación: puntaje final por dimensión</h2>
+      <table><thead><tr><th>Dimensión</th><th class="n">Likert</th><th class="n">Abiertas</th><th class="n">Final</th><th>Nivel</th></tr></thead><tbody>${finRows}</tbody></table>
       <div class="note" style="margin-top:4px">Final = promedio entre el Likert normalizado y las preguntas abiertas. Sistema de Creencias: solo Likert. Niveles: Destacado ≥ 3,40 · Competente 2,65–3,39 · Adecuado 2,00–2,64 · Insuficiente &lt; 2,00.</div>
+      <h2>4 · Perfil integral</h2>
       ${bloqueIntegral(c)}
-      <h2>Preguntas abiertas</h2>${qs}
-      ${figs.length ? `<h2>Desarrollo del problema</h2><div class="imgs">${figs.join('')}</div>` : ''}
-      ${dcn.hallazgos && dcn.hallazgos.trim() ? `<h2>Hallazgos adicionales</h2><div class="fb"><p>${escBR(dcn.hallazgos)}</p></div>` : ''}
+      ${avisos.map(a => `<div class="warn">${esc(a)}</div>`).join('')}
       <h2>Retroalimentación formativa</h2><div class="fb"><p>${escBR(feedbackDe(c))}</p></div>
       <div class="foot"><span>${esc(AUTORIA)}</span><span>Escuela Común Hospital de Concepción · SLEP Andalién Sur</span></div>
     </section>`;
