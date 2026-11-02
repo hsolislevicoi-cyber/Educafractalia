@@ -983,7 +983,7 @@
 
   // Logo del SLEP: si existe public/assets/logo-andalien-sur.png se incrusta en el informe; si no, queda el nombre en texto.
   let logoData = null;
-  const LOGO_HTML = () => logoData ? `<img src="${logoData}" alt="SLEP Andalién Sur" style="height:46px;display:block">` : '<div class="brand">SLEP <span>Andalién Sur</span></div>';
+  const LOGO_HTML = () => logoData ? `<img src="${logoData}" alt="SLEP Andalién Sur" style="height:80px;display:block">` : '<div class="brand">SLEP <span>Andalién Sur</span></div>';
   async function cargarLogo() {
     if (logoData !== null) return;
     logoData = '';
