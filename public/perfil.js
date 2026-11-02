@@ -1087,7 +1087,7 @@
   .ibox{border:1px solid var(--line);border-left:4px solid var(--navy);border-radius:6px;padding:8px 12px;background:var(--bg)}
   .ilab{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--mid);font-weight:600}.ival{font-size:14px;font-weight:600;color:var(--navy);margin:3px 0}
   .conv{grid-column:1/3;width:50%;font-size:11px}.conv th{padding:3px 6px}.conv td{padding:3px 6px}.conv tr.sel td{background:#EDF1F9}
-  .adj{color:#C98840;font-weight:600}.okr{color:#2E6B4A;font-weight:600}
+  .meta.sub{font-size:10.5px;margin-top:2px}
   .warn{background:#F9F1E5;border-left:3px solid #C98840;padding:6px 10px;margin-top:6px;font-size:11.5px;color:#7a531f}
   @media print{.bar{display:none}.page{padding:0;max-width:none}@page{size:A4;margin:14mm}}`;
 
@@ -1096,7 +1096,7 @@
     const niProp = P ? nivelIntegral(P.perfil) : null;
     const filas = [['A', 4], ['B', 3], ['C', 3], ['D', 2], ['E', 1]].map(([pf, n]) => `<tr${(c.perfil || (P && P.perfil)) === pf ? ' class="sel"' : ''}><td>Perfil ${pf}</td><td><span class="pill l${n}">${ESCUELA[n]}</span></td></tr>`).join('');
     const perfilTxt = c.perfil
-      ? `Perfil ${c.perfil}: ${esc(PERFILES[c.perfil].nombre)}${c.perfilDocente ? ' <span class="note">(definido por la docente)</span>' : ''}`
+      ? `Perfil ${c.perfil}: ${esc(PERFILES[c.perfil].nombre)}`
       : P ? `<span class="note">Propuesta, a validar por la docente:</span><br>Perfil ${P.perfil}: ${esc(PERFILES[P.perfil].nombre)}`
           : 'Por definir con juicio profesional';
     const nivelTxt = ni ? `<span class="pill l${ni}">${ESCUELA[ni]}</span>`
@@ -1127,27 +1127,21 @@
       const p = puntajeAbierta(s, q.key);
       const resp = q.field ? ((s.openAnswers || {})[q.field] || '') : null;
       const ia = evOk && ev[q.key] && ev[q.key].puntaje ? ev[q.key].puntaje : null;
-      let rev = '';
-      if (p && p.origen === 'docente') {
-        if (ia && ia !== p.v) rev = `<div class="qc"><span class="adj">Ajustado en la revisión docente</span> · propuesta inicial con IA: ${ia} (${ESCUELA[ia]}) → puntaje final: <b>${p.v} (${ESCUELA[p.v]})</b></div>`;
-        else if (ia) rev = `<div class="qc"><span class="okr">Propuesta con IA confirmada en la revisión docente</span></div>`;
-        else rev = `<div class="qc"><span class="okr">Puntaje asignado en la revisión docente</span></div>`;
-      }
       return `<div class="q"><div class="qh"><span><b>${q.key}</b> · ${esc(DIMS.find(d => d.key === q.dim).name)}</span><span>${p ? `<span class="pill l${p.v}">${ESCUELA[p.v]} (${p.v})</span>` : 'sin evaluar'}</span></div>
         <div class="qt">${esc(q.texto)}</div>
         <div class="qa">${resp === null ? '<i>Se evalúa a partir del dibujo o la foto del desarrollo.</i>' : (resp ? esc(resp) : '<i>[sin respuesta]</i>')}</div>
-        ${rev}
         ${q.key === 'P3b' && dcn.evidencia && dcn.evidencia.P3b && dcn.evidencia.P3b.length ? `<div class="qc"><b>Evidencia observada:</b> ${esc(dcn.evidencia.P3b.join(' · '))}</div>` : ''}
-        ${dcn.comentarios && dcn.comentarios[q.key] ? `<div class="qc"><b>Fundamento de la revisión:</b> ${escBR(dcn.comentarios[q.key])}</div>` : ''}</div>`;
+        ${dcn.comentarios && dcn.comentarios[q.key] ? `<div class="qc"><b>Observación:</b> ${escBR(dcn.comentarios[q.key])}</div>` : ''}</div>`;
     }).join('');
     const figs = [];
     for (const [tipo, tit] of [['dibujo', 'Dibujo en tablet'], ['foto', 'Foto del papel']]) {
       const m = getMedia(s, tipo);
       if (m) figs.push(`<figure><figcaption>${tit}</figcaption><img src="${await shrinkDataUrl(m.dataUrl, 900)}" alt="${tit}"></figure>`);
     }
-    const avisos = c.flags.filter(f => !f.startsWith('Provisorio'));
+    const avisos = c.flags.filter(f => !f.startsWith('Provisorio') && !f.startsWith('Perfil asignado'));
     return `<section class="page">
-      <div class="top"><div>${LOGO_HTML()}<div class="meta">Informe de perfil metacognitivo en resolución de problemas matemáticos</div></div>
+      <div class="top"><div>${LOGO_HTML()}<div class="meta">Informe de perfil metacognitivo en resolución de problemas matemáticos</div>
+        <div class="meta sub">${esc(AUTORIA)}<br>Escuela Común Hospital de Concepción · SLEP Andalién Sur</div></div>
         <div class="meta" style="text-align:right">Generado: ${today()}${c.provisional ? '<br><b style="color:#C98840">Informe provisorio</b>' : ''}</div></div>
       <h1>${esc(titleCase(s.name))}</h1>
       <div class="meta">${esc(s.id)} · ${esc(s.curso || '—')} · ${s.edad ?? '—'} años · Estadía: ${esc(typeof formatEstadia === 'function' ? formatEstadia(s.estadia) : s.estadia)}${s.aplicador ? ' · Aplicó: ' + esc(titleCase(s.aplicador)) : ''}${r.fecha_aplicacion ? ' · ' + esc(r.fecha_aplicacion) : ''}</div>
@@ -1165,7 +1159,6 @@
       ${bloqueIntegral(c)}
       ${avisos.map(a => `<div class="warn">${esc(a)}</div>`).join('')}
       <h2>Retroalimentación formativa</h2><div class="fb"><p>${escBR(feedbackDe(c))}</p></div>
-      <div class="foot"><span>${esc(AUTORIA)}</span><span>Escuela Común Hospital de Concepción · SLEP Andalién Sur</span></div>
     </section>`;
   }
 
