@@ -21,7 +21,7 @@
   const ESQUEMA = 'educa-fractalia/perfil-integral@1';
 
   // Escala de la escuela hospitalaria (equivalencia con la escala técnica 1–4)
-  const ESCUELA = { 4: 'Destacado', 3: 'Competente', 2: 'Adecuado', 1: 'Insuficiente' };
+  const ESCUELA = { 4: 'Destacado', 3: 'Competente', 2: 'Adecuado', 1: 'Insuficiente', 0: 'Sin respuesta' };
   // Estándar administrativo de la Escuela Común Hospital: perfil (foco pedagógico) → nivel integral (foco administrativo)
   const NIVEL_ADMIN = { A: 4, B: 3, C: 3, D: 2, E: 1 };
   const nivelIntegral = perfil => (perfil && NIVEL_ADMIN[perfil]) ? NIVEL_ADMIN[perfil] : null;
@@ -165,13 +165,16 @@
     return s < 2.0 ? 1 : s < 2.65 ? 2 : s < 3.4 ? 3 : 4;
   };
 
-  /** Puntaje de una pregunta abierta: docente (este módulo) > Módulo 02 revisado. */
+  /** Puntaje de una pregunta abierta. Orden: docente (visado) > Módulo 02 confirmado > sin respuesta (0, según la tipología) > propuesta de la IA (sin visar). */
   function puntajeAbierta(s, k) {
     const d = cache.docente[s.uid];
     const v = d && d.scores ? d.scores[k] : null;
-    if (v) return { v, origen: 'docente' };
+    if (v !== null && v !== undefined) return { v, origen: 'docente' };
     const ev = (typeof state !== 'undefined' && state.evaluations) ? state.evaluations[s.id] : null;
     if (ev && ev.estado === 'reviewed' && ev[k] && ev[k].puntaje) return { v: ev[k].puntaje, origen: 'módulo 02' };
+    const q = PREGUNTAS.find(x => x.key === k);
+    if (q && q.field && !String((s.openAnswers || {})[q.field] || '').trim()) return { v: 0, origen: 'sin respuesta' };
+    if (ev && ev.estado === 'completed' && ev[k] && ev[k].puntaje) return { v: ev[k].puntaje, origen: 'IA' };
     return null;
   }
 
@@ -213,7 +216,12 @@
   }
 
   /** Caso atípico: propone el perfil cuyas reglas quedan a menor distancia (en puntos de la escala 1–4). Solo propuesta; la docente decide. */
-  function proponerPerfil(dims) {
+  function proponerPerfil(dims, lv) {
+    // Precedentes de la investigadora en la muestra piloto (casos atípicos, S3, S6 y S8 del documento de tipología).
+    if (lv && ['rec', 'heu', 'con', 'sc'].every(k => lv[k] >= 3))
+      return { perfil: 'B', distancia: null, alternativo: null, nota: 'Todas las dimensiones en nivel medio-alto o alto sin cumplir el Perfil A: se ubica como Estratega parcial en el umbral superior, con proyección hacia el Perfil A (criterio aplicado en la muestra piloto).' };
+    if (lv && lv.rec <= 2 && lv.heu <= 2 && lv.con <= 2 && lv.sc >= 3)
+      return { perfil: 'D', distancia: null, alternativo: null, nota: 'Recursos, heurísticas y control en nivel bajo o medio-bajo con creencias altas: se asigna Perfil D con nota aclaratoria (criterio aplicado en la muestra piloto).' };
     const v = k => dims[k].score;
     const below = (x, th) => Math.max(0, th - x), above = (x, th) => Math.max(0, x - th);
     const T3 = 2.65, T4 = 3.40;
@@ -252,7 +260,9 @@
 
     const totalAbiertas = PREGUNTAS.length;
     const evaluadas = PREGUNTAS.filter(q => puntajeAbierta(s, q.key)).length;
+    const sinVisar = PREGUNTAS.filter(q => { const p = puntajeAbierta(s, q.key); return p && p.origen === 'IA'; }).length;
     const flags = [];
+    if (sinVisar) flags.push(`Provisorio: ${sinVisar} pregunta(s) abierta(s) tienen solo la propuesta de la IA y falta visarlas. Los puntajes y el perfil se actualizan al visarlas.`);
     if (evaluadas < totalAbiertas) {
       flags.push(`Provisorio: faltan ${totalAbiertas - evaluadas} de ${totalAbiertas} preguntas abiertas por evaluar. Mientras tanto, cada dimensión usa lo disponible (Likert y las abiertas ya evaluadas).`);
     }
@@ -268,11 +278,11 @@
     if (!perfil && completo) flags.push('Esta combinación de niveles no está cubierta por ninguna regla de la matriz de perfiles (caso atípico): requiere juicio profesional.');
     if (Object.values(lv).some(x => x === null)) flags.push('Faltan puntajes Likert para asignar un perfil.');
 
-    const provisional = evaluadas < totalAbiertas;
-    const propuesta = (!perfil && completo && !provisional) ? proponerPerfil(dims) : null;
+    const provisional = evaluadas < totalAbiertas || sinVisar > 0;
+    const propuesta = (!perfil && completo && !provisional) ? proponerPerfil(dims, lv) : null;
     return {
       s, dims, lv, perfil, perfilMatriz, perfilDocente, propuesta, alternativos: [...alternativos].sort(), flags,
-      evaluadas, totalAbiertas,
+      evaluadas, totalAbiertas, sinVisar,
       provisional,
       revision: flags.some(f => !f.startsWith('Provisorio') && !f.startsWith('Perfil asignado')) || (!perfil)
     };
@@ -600,6 +610,21 @@
     return `<div class="oq-ia"><span class="oq-src">Propuesta IA: <b>${n}</b> (${ESCUELA[n]})${ev[q.key].justificacion ? ' — ' + esc(ev[q.key].justificacion) : ''}</span>
       ${actual === n ? '<span class="oq-src">✓ adoptada</span>' : `<button class="btn btn-ghost btn-sm oq-use-ia" data-score="${n}">Usar ${n}</button>`}</div>`;
   }
+  /** Pasa las propuestas de la IA (aún sin visar) a puntajes docentes. Devuelve cuántas. */
+  async function adoptarIA(s) {
+    const ev = evIA(s); if (!ev || (ev.estado !== 'completed' && ev.estado !== 'reviewed')) return 0;
+    const d = docente(s.uid); let n = 0;
+    PREGUNTAS.forEach(q => {
+      const r = ev[q.key], p = puntajeAbierta(s, q.key);
+      if (!r || !r.puntaje || !p || p.origen !== 'IA') return;
+      d.scores[q.key] = r.puntaje; n++;
+      const base = r.comentario_revisor || r.justificacion;
+      if (base && !(d.comentarios[q.key] || '').trim()) d.comentarios[q.key] = base;
+      if (q.key === 'P3b' && Array.isArray(r.heuristicas_detectadas) && r.heuristicas_detectadas.length && !(d.hallazgos || '').trim()) d.hallazgos = 'Heurísticas detectadas: ' + r.heuristicas_detectadas.join(', ') + '.';
+    });
+    if (n) await saveDocente(s.uid);
+    return n;
+  }
   function bloqueIA(s) {
     const ev = evIA(s), listo = typeof state !== 'undefined' && state.apiReady, hayImg = !!(getMedia(s, 'foto') || getMedia(s, 'dibujo'));
     const estado = !ev ? 'Aún sin evaluar con IA.' : (ev.hasLocalImage ? 'Evaluado con imagen.' : 'Evaluado SIN imagen: conviene reevaluar ahora.');
@@ -767,7 +792,7 @@
     if (c.propuesta) {
       const P = c.propuesta;
       propBlock = `<div class="pf-flag" style="margin-top:10px;"><b>Propuesta de perfil (caso atípico, preguntas abiertas visadas):</b> Perfil ${P.perfil} · ${esc(PERFILES[P.perfil].nombre)}.
-        Es el perfil cuyas reglas quedan más cerca de los puntajes (diferencia ${fmt(P.distancia)} puntos)${P.alternativo ? `; alternativa muy cercana: Perfil ${P.alternativo} (${fmt(P.distanciaAlt)})` : ''}.
+        ${P.nota ? esc(P.nota) : `Es el perfil cuyas reglas quedan más cerca de los puntajes (diferencia ${fmt(P.distancia)} puntos)${P.alternativo ? `; alternativa muy cercana: Perfil ${P.alternativo} (${fmt(P.distanciaAlt)})` : ''}.`}
         <div style="margin-top:6px;"><button class="btn btn-primary btn-sm" id="pfConfirmarProp">Confirmar Perfil ${P.perfil}</button> <span class="p4-mini">o elige otro abajo.</span></div></div>`;
     } else if (!c.perfil && c.provisional) {
       propBlock = `<div class="p4-mini" style="margin-top:8px;">Cuando visés las 6 preguntas abiertas se propondrá un perfil para este caso.</div>`;
@@ -813,9 +838,9 @@
         ${answerBlock}
         <div class="oq-score">
           <span class="score-label">Puntaje docente:</span>
-          <div class="score-buttons">${[1, 2, 3, 4].map(n => `<button class="score-btn ${p && p.v === n ? 'active' : ''}" data-score="${n}" title="${ESCUELA[n]}">${n}</button>`).join('')}</div>
+          <div class="score-buttons">${[0, 1, 2, 3, 4].map(n => `<button class="score-btn ${p && p.v === n && p.origen !== 'IA' ? 'active' : ''}" data-score="${n}" title="${n === 0 ? 'Sin respuesta o respuesta irrelevante (0)' : ESCUELA[n]}">${n}</button>`).join('')}</div>
           <span class="lvl">${p ? ESCUELA[p.v] : 'sin evaluar'}</span>
-          ${p && p.origen !== 'docente' ? `<span class="oq-src">(tomado del ${p.origen})</span>` : ''}
+          ${p && p.origen === 'IA' ? `<span class="oq-src">(propuesta de la IA, sin visar)</span>` : p && p.origen === 'módulo 02' ? `<span class="oq-src">(confirmado en el Módulo 02)</span>` : p && p.origen === 'sin respuesta' ? `<span class="oq-src">(sin respuesta = 0)</span>` : ''}
         </div>
         ${propuestaIA(s, q)}
         ${cajaCriterio(s, q, p, dcn)}
@@ -838,7 +863,7 @@
           ${bloqueIA(s)}</div>
       </div>
       <div>
-        <div class="pf-block"><div class="pf-title">Preguntas abiertas</div>${oqHTML}</div>
+        <div class="pf-block"><div class="pf-title">Preguntas abiertas</div>${c.sinVisar ? `<div class="pf-flag" style="margin-bottom:10px;"><b>${c.sinVisar} pregunta(s) con propuesta de la IA sin visar.</b> Revísalas y corrige lo que corresponda; el perfil final se calcula al visarlas todas.<div style="margin-top:6px;"><button class="btn btn-primary btn-sm" id="pfVisar">Visar todas las propuestas de la IA</button></div></div>` : ''}${oqHTML}</div>
         <div class="pf-block"><div class="pf-title">Hallazgos adicionales <span class="p4-mini">(descripción objetiva del/la estudiante)</span></div>
           <textarea class="pf-feedback" id="pfHallazgos" style="min-height:90px;" placeholder="Anota todo hallazgo, sustentado en evidencia escrita, que describa objetivamente al/la estudiante según los criterios.">${esc(dcn.hallazgos || '')}</textarea></div>
         <div class="pf-block"><div class="pf-title">Retroalimentación formativa <span id="pfSaved" class="pf-saved"></span></div>
@@ -925,6 +950,7 @@
         delete d.fb[fr.dataset.part]; delete d.fbSig[fr.dataset.part]; d.feedback = null;
         renderPerfil(); saveDocente(s.uid).then(flashSaved); return;
       }
+      if (e.target.id === 'pfVisar') { await adoptarIA(s); renderPerfil(); flashSaved(); return; }
       if (e.target.id === 'pfConfirmarProp') {
         const c0 = compute(s); if (!c0.propuesta) return;
         const d = docente(s.uid); d.perfilDocente = c0.propuesta.perfil;
@@ -998,7 +1024,7 @@
         o[d.key] = { nombre: d.name, likert: x.likert, abiertas: x.abiertas, puntaje: x.score, nivel: x.nivel, nivel_escuela: x.nivel ? ESCUELA[x.nivel] : null, nivel_tecnico: x.nivel ? TECNICO[x.nivel] : null, provisorio: x.provisional };
         return o;
       }, {}),
-      perfil: { codigo: c.perfil, nombre: c.perfil ? PERFILES[c.perfil].nombre : null, nivel_integral_administrativo: nivelIntegral(c.perfil) ? ESCUELA[nivelIntegral(c.perfil)] : null, origen: c.perfilDocente ? 'docente' : (c.perfil ? 'matriz' : null), propuesta: c.propuesta ? { codigo: c.propuesta.perfil, alternativo: c.propuesta.alternativo, distancia: c.propuesta.distancia } : null, provisorio: c.provisional, alternativos: c.alternativos, requiere_revision: c.revision, avisos: c.flags },
+      perfil: { codigo: c.perfil, nombre: c.perfil ? PERFILES[c.perfil].nombre : null, nivel_integral_administrativo: nivelIntegral(c.perfil) ? ESCUELA[nivelIntegral(c.perfil)] : null, origen: c.perfilDocente ? 'docente' : (c.perfil ? 'matriz' : null), propuesta: c.propuesta ? { codigo: c.propuesta.perfil, alternativo: c.propuesta.alternativo, distancia: c.propuesta.distancia, nota: c.propuesta.nota || null } : null, provisorio: c.provisional, alternativos: c.alternativos, requiere_revision: c.revision, avisos: c.flags },
       preguntas_abiertas: PREGUNTAS.map(q => {
         const p = puntajeAbierta(s, q.key), d = cache.docente[s.uid];
         return { codigo: q.key, dimension: DIMS.find(x => x.key === q.dim).name, pregunta: q.texto, respuesta: q.field ? ((s.openAnswers || {})[q.field] || '') : null, puntaje: p ? p.v : null, nivel_escuela: p ? ESCUELA[p.v] : null, origen_puntaje: p ? p.origen : null, comentario: (d && d.comentarios && d.comentarios[q.key]) || '', insumo_evaluador: CJ.INSUMOS[q.key] || null, evidencia_observada: q.key === 'P3b' ? ((d && d.evidencia && d.evidencia.P3b) || []) : undefined };
@@ -1075,7 +1101,7 @@
   table{width:100%;border-collapse:collapse}th{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--mid);text-align:left;padding:5px 6px;border-bottom:1px solid var(--line)}
   td{padding:6px;border-bottom:1px solid #EEF1F7;vertical-align:top}td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
   .pill{display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;text-transform:uppercase}
-  .l4{background:#E0ECE4;color:#2E6B4A}.l3{background:#ECF3EE;color:#5A8B6D}.l2{background:#F9F1E5;color:#C98840}.l1{background:#F8ECEC;color:#B85C5C}
+  .l4{background:#E0ECE4;color:#2E6B4A}.l3{background:#ECF3EE;color:#5A8B6D}.l2{background:#F9F1E5;color:#C98840}.l1{background:#F8ECEC;color:#B85C5C}.l0{background:#EEE;color:#666}
   .q{border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-bottom:8px;break-inside:avoid}
   .q .qh{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--gray)}.q .qh b{color:var(--navy)}
   .q .qt{color:var(--gray);font-size:11px;margin:2px 0 4px}.q .qa{background:#EDF1F9;border-radius:4px;padding:6px 9px;white-space:pre-wrap}
@@ -1097,7 +1123,7 @@
     const filas = [['A', 4], ['B', 3], ['C', 3], ['D', 2], ['E', 1]].map(([pf, n]) => `<tr${(c.perfil || (P && P.perfil)) === pf ? ' class="sel"' : ''}><td>Perfil ${pf}</td><td><span class="pill l${n}">${ESCUELA[n]}</span></td></tr>`).join('');
     const perfilTxt = c.perfil
       ? `Perfil ${c.perfil}: ${esc(PERFILES[c.perfil].nombre)}`
-      : P ? `<span class="note">Propuesta, a validar por la docente:</span><br>Perfil ${P.perfil}: ${esc(PERFILES[P.perfil].nombre)}`
+      : P ? `<span class="note">Propuesta, a validar por la docente:</span><br>Perfil ${P.perfil}: ${esc(PERFILES[P.perfil].nombre)}${P.nota ? `<br><span class="note">${esc(P.nota)}</span>` : ''}`
           : 'Por definir con juicio profesional';
     const nivelTxt = ni ? `<span class="pill l${ni}">${ESCUELA[ni]}</span>`
       : niProp ? `<span class="note">Propuesto, por confirmar:</span> <span class="pill l${niProp}">${ESCUELA[niProp]}</span>` : 'Por definir';
@@ -1217,19 +1243,8 @@ ${secciones.join('\n')}</body></html>`;
     });
     $('p4AdoptIA').addEventListener('click', async () => {
       let n = 0, est = 0;
-      for (const s of state.students) {
-        const ev = evIA(s); if (!ev || (ev.estado !== 'completed' && ev.estado !== 'reviewed')) continue;
-        const d = docente(s.uid); let tocado = false;
-        PREGUNTAS.forEach(q => {
-          const r = ev[q.key]; if (!r || !r.puntaje || d.scores[q.key]) return;
-          d.scores[q.key] = r.puntaje; n++; tocado = true;
-          const base = r.comentario_revisor || r.justificacion;
-          if (base && !(d.comentarios[q.key] || '').trim()) d.comentarios[q.key] = base;
-          if (q.key === 'P3b' && Array.isArray(r.heuristicas_detectadas) && r.heuristicas_detectadas.length && !(d.hallazgos || '').trim()) d.hallazgos = 'Heurísticas detectadas (IA): ' + r.heuristicas_detectadas.join(', ') + '.';
-        });
-        if (tocado) { est++; await saveDocente(s.uid); }
-      }
-      toast(n ? `${n} puntaje(s) adoptados en ${est} estudiante(s). Son propuestas: revísalos en cada perfil.` : 'No hay propuestas de IA pendientes de adoptar', n ? 'success' : 'info');
+      for (const s of state.students) { const k = await adoptarIA(s); if (k) { n += k; est++; } }
+      toast(n ? `${n} puntaje(s) visados en ${est} estudiante(s). Revísalos en cada perfil.` : 'No hay propuestas de IA pendientes de visar', n ? 'success' : 'info');
       refresh();
     });
     $('p4UploadFolder').addEventListener('click', () => $('p4FolderInput').click());

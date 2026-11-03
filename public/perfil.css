@@ -151,3 +151,4 @@
 .oq-crit { margin-top: 8px; padding: 8px 10px; border-left: 3px solid var(--level-medio-bajo); background: var(--level-medio-bajo-bg); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; display: grid; gap: 6px; }
 .crit-txt, .cr-txt { width: 100%; font-family: var(--font-main); font-size: 12.5px; border: 1px solid var(--ef-border); border-radius: var(--radius-sm); padding: 7px 9px; min-height: 52px; resize: vertical; }
 .cr-row { border: 1px solid var(--ef-border-soft); border-radius: var(--radius); padding: 8px 10px; margin-top: 8px; display: grid; gap: 6px; }
+.score-buttons .score-btn[data-score="0"] { color: var(--ef-gray); }
