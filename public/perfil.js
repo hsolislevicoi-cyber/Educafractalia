@@ -1165,7 +1165,14 @@
       if (m) figs.push(`<figure><figcaption>${tit}</figcaption><img src="${await shrinkDataUrl(m.dataUrl, 900)}" alt="${tit}"></figure>`);
     }
     const avisos = c.flags.filter(f => !f.startsWith('Provisorio') && !f.startsWith('Perfil asignado'));
-    return `<section class="page">
+    // Datos incrustados para volver a cargar el informe en los módulos 06 y 07 sin regenerarlo.
+    const ef = { v: 1, origen: 'datos', id: s.id, nombre: titleCase(s.name), curso: s.curso || '', edad: s.edad ?? null,
+      estadia: typeof formatEstadia === 'function' ? formatEstadia(s.estadia) : (s.estadia || ''), aplicador: s.aplicador ? titleCase(s.aplicador) : '', fecha: r.fecha_aplicacion || '',
+      likert: {}, abiertas: {}, score: {}, nivel: {}, preg: {}, perfil: c.perfil || (c.propuesta ? c.propuesta.perfil : null), propuesto: !c.perfil && !!c.propuesta, provisional: !!c.provisional };
+    DIMS.forEach(d => { const x = c.dims[d.key]; ef.likert[d.key] = x.likert; ef.abiertas[d.key] = d.open.length ? x.abiertas : null; ef.score[d.key] = x.score; ef.nivel[d.key] = x.nivel; });
+    PREGUNTAS.forEach(q => { const p = puntajeAbierta(s, q.key); ef.preg[q.key] = p ? p.v : null; });
+    const efJson = JSON.stringify(ef).replace(/</g, '\\u003c');
+    return `<section class="page"><script type="application/json" class="ef-datos">${efJson}</script>
       <div class="top"><div>${LOGO_HTML()}<div class="meta">Informe de perfil metacognitivo en resolución de problemas matemáticos</div>
         <div class="meta sub">${esc(AUTORIA)}<br>Escuela Común Hospital de Concepción · SLEP Andalién Sur</div></div>
         <div class="meta" style="text-align:right">Generado: ${today()}${c.provisional ? '<br><b style="color:#C98840">Informe provisorio</b>' : ''}</div></div>

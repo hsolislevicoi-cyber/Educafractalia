@@ -19,9 +19,22 @@
   const students = () => (typeof state !== 'undefined' && state.students) ? state.students : [];
 
   /* ───────── Datos ───────── */
-  function filtrar() {
+  const normTxt = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const estLbl = s => s.importado ? (s.estadia || '') : (typeof formatEstadia === 'function' ? formatEstadia(s.estadia) : (s.estadia || ''));
+  /* Estudiantes del Módulo 01 más informes cargados (los del Módulo 01 tienen prioridad si coinciden). */
+  function importados() {
+    const I = window.Informes; if (!I) return [];
+    const ex = new Set(students().map(s => normTxt(s.id) + '|' + normTxt(s.name)));
+    return I.filas().filter(f => !ex.has(normTxt(f.s.id) + '|' + normTxt(f.s.name)));
+  }
+  function todos() {
+    const filas = calcular(students()).concat(importados());
+    filas.forEach(d => { d.curso = d.s.curso || ''; d.estadia = estLbl(d.s); });
+    return filas;
+  }
+  function filtrar(filas) {
     const cu = $('g6Curso').value, es = $('g6Estadia').value;
-    return students().filter(s => (!cu || s.curso === cu) && (!es || s.estadia === es));
+    return filas.filter(d => (!cu || d.curso === cu) && (!es || d.estadia === es));
   }
   function calcular(lista) {
     const P = PI();
@@ -194,13 +207,14 @@
   const PNG = {};
   function pintar() {
     const P = PI(); if (!P) return;
-    const lista = students();
+    const lista = todos();
     $('modulo6Empty').style.display = lista.length ? 'none' : '';
     $('modulo6Main').style.display = lista.length ? '' : 'none';
     if (!lista.length) return;
     llenarFiltros(lista);
-    const sel = filtrar(), datos = calcular(sel);
-    $('g6N').textContent = `${datos.length} de ${lista.length} estudiantes`;
+    const datos = filtrar(lista);
+    const nImp = datos.filter(d => d.importado).length;
+    $('g6N').textContent = `${datos.length} de ${lista.length} estudiantes` + (nImp ? ` · ${nImp} desde informes cargados` : '');
     const prov = datos.filter(d => d.c.provisional).length;
     const av = $('g6Aviso');
     av.style.display = prov ? 'block' : 'none';
@@ -218,8 +232,8 @@
       const html = `<option value="">${todos}</option>` + opts.map(v => `<option>${esc(v)}</option>`).join('');
       if (el.dataset.sig !== html) { el.innerHTML = html; el.dataset.sig = html; el.value = opts.includes(cur) ? cur : ''; }
     };
-    llenar('g6Curso', lista.map(s => s.curso), 'Todos');
-    llenar('g6Estadia', lista.map(s => s.estadia), 'Todas');
+    llenar('g6Curso', lista.map(d => d.curso), 'Todos');
+    llenar('g6Estadia', lista.map(d => d.estadia), 'Todas');
   }
 
   /* Radar por estudiante vs promedio del grupo */
@@ -272,11 +286,12 @@
     $('g6Estadia').addEventListener('change', pintar);
     $('g6Grid').addEventListener('click', e => { const b = e.target.closest('.g6-dl'); if (b) bajar([b.dataset.id]); });
     $('g6DlTodo').addEventListener('click', () => bajar([...document.querySelectorAll('.g6-card')].map(c => c.dataset.id)));
+    if (window.Informes) { window.Informes.panel($('g6Informes'), 'g6'); window.Informes.alCambiar(() => { if (document.getElementById('view-modulo6').classList.contains('active')) pintar(); }); }
     if (typeof window.switchView === 'function') {
       const base = window.switchView;
       window.switchView = function (name) { base(name); if (name === 'modulo6') pintar(); };
     }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
-  window.Graficos = { pintar, construir, calcular };
+  window.Graficos = { pintar, construir, calcular, todos, estLbl };
 })();
