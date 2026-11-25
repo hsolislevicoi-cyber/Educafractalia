@@ -1,7 +1,10 @@
 # Guía de codificación — Evaluación de la metacognición en resolución de problemas
 
-Fuente primaria: tesis de Solís H. (2025), *Metacognición en la resolución de problemas matemáticos*
-(cap. III.3, III.6, IV y anexos C–F). Esta guía es la referencia única que deben leer la plataforma,
+Fuentes primarias: (1) tesis de Solís H. (2025), *Metacognición en la resolución de problemas matemáticos*
+(cap. III.3, III.6, IV y anexos C–F), que usó una versión extensa del instrumento (6 ítems Likert por
+dimensión); y (2) *Boletín informativo sobre pilotaje metacognitivo en matemática* (Educa Fractalia,
+23-12-2025), con la versión vigente del instrumento (12 ítems, 3 por dimensión) aplicada en la Escuela
+Común Hospital de Concepción (N=19). Esta guía es la referencia única que deben leer la plataforma,
 la evaluación con IA y cualquier persona o Claude que evalúe. **Si algo de esta guía contradice a la
 tesis, manda la tesis**; si contradice a un visado posterior de la docente, ver sección 9.
 
@@ -57,7 +60,7 @@ Descriptores por dimensión (resumen fiel de la Tabla 7):
 
 ## 3. Cálculo del nivel por dimensión
 
-1. Likert normalizado a escala 1–4 (en la plataforma: `1 + 0,5·(suma − 3)`, con tres ítems por dimensión).
+1. Likert normalizado a escala 1–4: `1 + 0,5·(suma − 3)`, con **tres ítems por dimensión** (instrumento de 12 ítems del pilotaje). La tesis usó 6 ítems; la fórmula de la plataforma corresponde a la versión de 12 ítems.
 2. Dimensión final = **promedio entre el Likert normalizado y el promedio de las dos abiertas**
    (tesis III.6; ejemplo T-S1 Recursos: Likert 2,8 y abiertas 1,5 → 2,15).
 3. Sistema de creencias = solo el Likert normalizado.
@@ -193,10 +196,79 @@ Respuestas textuales (con sus errores originales). Entre corchetes: comentario d
    Coincide con lo que el texto afirma sobre Control (promedio abiertas 1,35, “nivel insatisfactorio”).
 3. **Efecto en perfiles individuales.** T-S7 con los valores del Anexo D (R 2,60; H 3,05; C 1,60; SC 2,60)
    cumpliría la regla del perfil E, no D.
-4. El Likert de la tesis tiene 6 ítems por dimensión; la plataforma usa la versión con 3 ítems y la
-   fórmula `1 + 0,5·(suma − 3)`. Verificar que la equivalencia sea la del documento de perfil integral.
+4. Likert de 6 ítems (tesis) frente a 3 ítems (instrumento vigente): resuelto con el boletín. La
+   fórmula de la plataforma es la correcta para la versión de 12 ítems. En el pilotaje, la Tabla de
+   promedios del boletín sí es coherente con el método (Likert normalizado + abiertas, promedio simple).
 
-## 9. Fuentes que pueden diferir y orden de precedencia
+## 9. Pilotaje hospitalario (boletín, N=19) — protocolo y casos
+
+Contexto: aulas intrahospitalarias; clases de 30 min, ruido e interrupciones; aplicación por los propios
+profesores. Dos grupos: G1 (n=10, instrumento completo de 12 ítems) y G2 (n=9; 6 respondieron una versión
+con error de impresión de 10 ítems; 3 sin desarrollo matemático).
+
+Reglas de tratamiento de datos:
+- **Imputación por media dimensional** (G2, versión de 10 ítems): Recursos y Heurísticas se calculan con
+  el promedio de los ítems válidos respondidos de esa dimensión.
+- **Exclusión parcial:** si hay pérdida crítica de información (p. ej. sin desarrollo matemático) se
+  excluye del cálculo de desempeño global y se mantiene para el análisis de casos.
+- Fiabilidad: α de Cronbach 0,823 (12 ítems, n=10) y 0,745 (10 ítems comunes, n=17).
+- Estadística descriptiva y estudio de casos múltiples; la desviación estándar se lee como
+  heterogeneidad del aula (alta DE = necesidad de material multinivel). Sin correlaciones lineales.
+
+**Calibración metacognitiva** (brecha entre Likert y desempeño en abiertas + desarrollo):
+- *Calibrado:* coherencia entre lo que dice hacer y lo que ejecuta.
+- *Sobreestimador (ilusión de competencia):* autopercepción alta con desempeño bajo.
+- *Subestimador (inseguridad):* autopercepción baja con desempeño adecuado (frecuente en vulnerabilidad emocional).
+La plataforma todavía no calcula este indicador.
+
+Nombre del perfil E: la tesis usa “Metacognición frágil”; el boletín “Incipiente”. Usar el nombre que
+indique la docente (pendiente).
+
+### Niveles y perfiles asignados en el pilotaje
+
+Los niveles se reproducen exactamente desde los promedios combinados del boletín (Likert + abiertas;
+Creencias = Likert) con los cortes de la sección 3. Perfiles asignados por la investigadora:
+
+| Caso | Rec | Heu | Con | SC | Perfil asignado | ¿Lo da la regla estricta? |
+|---|---|---|---|---|---|---|
+| S1 | Bajo | Bajo | M-bajo | Bajo | E | sí |
+| S2 | Alto | Alto | M-alto | M-bajo | B | sí |
+| S3 | M-alto | M-bajo | M-alto | M-alto | C | sí |
+| S4 | M-alto | Alto | M-alto | Alto | B (“destacan heurísticas, falta mejorar recursos”) | no: ninguna regla cubre el caso |
+| S5 | M-alto | M-bajo | Bajo | M-bajo | D | **no: la regla E se cumple (3 dimensiones M-bajo/Bajo con Control y SC)** |
+| S6 | Alto | Alto | M-alto | Alto | A | no: Control no es alto |
+| S7 | M-alto | M-bajo | M-bajo | M-bajo | D | **no: la regla E se cumple** |
+| S8 | M-alto | M-alto | M-bajo | M-bajo | B | sí |
+| S9 | M-bajo | M-alto | M-bajo | M-alto | D | sí |
+| S10 | Bajo | Bajo | Bajo | M-bajo | E | sí |
+| S11 | M-bajo | M-bajo | M-bajo | M-alto | D | sí |
+| S13 | M-bajo | M-bajo | M-alto | M-bajo | D | sí |
+| S14 | M-bajo | M-bajo | Bajo | Alto | D | no: hay una dimensión alta |
+| S16 | M-alto | M-alto | M-alto | Alto | C (“falta profundizar control”) | no: ninguna regla cubre el caso |
+| S17 | M-bajo | Bajo | Bajo | M-bajo | E | sí |
+| S19 | Bajo | M-bajo | M-alto | M-bajo | D | sí |
+
+Lectura operativa que se desprende de estos casos (**inferida, confirmar con la docente**):
+- **Perfil E** se asigna cuando hay al menos tres dimensiones M-bajo/Bajo con Control y Creencias entre
+  ellas **y además al menos dos dimensiones en nivel Bajo** (S1, S10, S17 son E; S5 y S7, con una o cero
+  dimensiones en Bajo, son D). La plataforma hoy asigna E a S5 y a S7.
+- **Todas las dimensiones M-alto o alto sin cumplir A:** el pilotaje dio B (S4), C (S16) y A (S6).
+  La plataforma usa B para todo el grupo; S16 sería la excepción.
+- **Alto en Creencias con el resto bajo/M-bajo:** D con nota aclaratoria (S14).
+
+Evidencias cualitativas del pilotaje útiles como anclas de P2, P3a y P3b:
+- P2 con descarte de alternativas: “por las cantidades… yo veía que iba bajando la vacía; las otras
+  operaciones suma, división, multiplicación no coincidían” → Recursos abiertas 4. Ruta alternativa a la
+  del caso T-S11 para llegar a 4.
+- P3a con cambio de estrategia: “al principio intenté dibujar el problema pero como no me salió lo cambié
+  para usar álgebra” (estudiante con Heurísticas abiertas 4 y desarrollo algebraico). Es el ejemplo de
+  ajuste de estrategia que la rúbrica de Heurísticas valora en 4.
+- P3b: “extrae los datos, los ordena y clasifica; realiza una resta eficiente; uso eficiente del lenguaje
+  para comprender y responder” (tabla Datos / Problema / Respuesta, con resultado 150 g incorrecto):
+  Heurísticas abiertas 2,5. **El resultado incorrecto no baja el puntaje metacognitivo por sí solo.**
+- Sin respuesta útil (“no sé / todo igual / no”), solo datos y una resta: Recursos 1,5, Heurísticas 1, Control 1.
+
+## 10. Fuentes que pueden diferir y orden de precedencia
 
 1. Tesis (esta guía, secciones 2–6).
 2. Visados de la docente posteriores a la tesis (por ejemplo, el caso S01 de la muestra Kobo:
@@ -209,10 +281,11 @@ Diferencias conocidas entre fuentes (resolver con la docente):
 - P3a con tres pasos incluyendo revisión: la tesis da 4; el visado S01 da 3.
 - P2 con razón externa (“me lo enseñaron”, “con mis compañeros”): la tesis da 1; las reglas usadas para las
   propuestas de los 30 informes daban 2.
+- P2 con descarte de alternativas: tesis y pilotaje dan 4 por dos rutas (estructura del problema; descarte de operaciones).
 - P4 genérico (“leer mejor”): la tesis da 2; las propuestas de los 30 informes daban 1.
 - P3b con datos + cálculos: la tesis da 2; las propuestas daban 3.
 
-## 10. Uso responsable
+## 11. Uso responsable
 
 Los puntajes de IA o de Claude son propuestas que la docente visa. El estudiante recibe retroalimentación
 formativa, no una etiqueta. No se publican nombres, fotos ni respuestas identificables fuera del contexto
