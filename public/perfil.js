@@ -1298,5 +1298,5 @@ ${secciones.join('\n')}</body></html>`;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
 
   // Expuesto para pruebas y para integrar con otros módulos
-  window.PerfilIntegral = { criteriosActivos, compute, asignarPerfil, nivelDe, feedbackAuto, refresh, PERFILES, _cache: cache };
+  window.PerfilIntegral = { criteriosActivos, compute, asignarPerfil, nivelDe, feedbackAuto, refresh, PERFILES, DIMS, PREGUNTAS, NIVEL_ADMIN, ESCUELA, puntajeAbierta, _cache: cache };
 })();
