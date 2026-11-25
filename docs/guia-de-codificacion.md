@@ -98,7 +98,7 @@ Las dimensiones ancla son **Control y Sistema de creencias**.
 | B · Estratega parcial | Alto o medio-alto en Recursos y Heurísticas, pero medio-bajo o bajo en Control o Sistema de creencias |
 | C · Reflexivo en desarrollo | Alto o medio-alto en Control y Sistema de creencias, pero bajo o medio-bajo en Recursos y Heurísticas |
 | D · Metacognitivo en desarrollo | Medio-alto o medio-bajo en todas las dimensiones, sin nivel alto en ninguna |
-| E · Metacognición frágil | Bajo o medio-bajo en al menos tres dimensiones, incluyendo Control y Sistema de creencias |
+| E · Metacognición incipiente (la tesis la llama “frágil”; en la Escuela Común Hospital su nivel administrativo es Insuficiente) | Bajo o medio-bajo en al menos tres dimensiones, incluyendo Control y Sistema de creencias, **y al menos dos dimensiones en nivel Bajo** (criterio del pilotaje, confirmado por la docente); con menos, se asigna D |
 
 Un perfil es un punto de partida para la retroalimentación, no un diagnóstico fijo. Los casos que no
 calzan en ninguna regla se proponen con precedentes y quedan “a validar por la docente”.
@@ -221,8 +221,7 @@ Reglas de tratamiento de datos:
 - *Subestimador (inseguridad):* autopercepción baja con desempeño adecuado (frecuente en vulnerabilidad emocional).
 La plataforma todavía no calcula este indicador.
 
-Nombre del perfil E: la tesis usa “Metacognición frágil”; el boletín “Incipiente”. Usar el nombre que
-indique la docente (pendiente).
+Nombre del perfil E: la tesis usa “Metacognición frágil”; el boletín y la plataforma “Incipiente” (decisión de la docente). Su nivel administrativo en la escuela es Insuficiente.
 
 ### Niveles y perfiles asignados en el pilotaje
 
@@ -233,7 +232,7 @@ Creencias = Likert) con los cortes de la sección 3. Perfiles asignados por la i
 |---|---|---|---|---|---|---|
 | S1 | Bajo | Bajo | M-bajo | Bajo | E | sí |
 | S2 | Alto | Alto | M-alto | M-bajo | B | sí |
-| S3 | M-alto | M-bajo | M-alto | M-alto | C | sí |
+| S3 | M-alto | M-bajo | M-alto | M-alto | C | no: la regla C pide Recursos y Heurísticas en M-bajo o Bajo, y Recursos es M-alto |
 | S4 | M-alto | Alto | M-alto | Alto | B (“destacan heurísticas, falta mejorar recursos”) | no: ninguna regla cubre el caso |
 | S5 | M-alto | M-bajo | Bajo | M-bajo | D | **no: la regla E se cumple (3 dimensiones M-bajo/Bajo con Control y SC)** |
 | S6 | Alto | Alto | M-alto | Alto | A | no: Control no es alto |
@@ -246,15 +245,17 @@ Creencias = Likert) con los cortes de la sección 3. Perfiles asignados por la i
 | S14 | M-bajo | M-bajo | Bajo | Alto | D | no: hay una dimensión alta |
 | S16 | M-alto | M-alto | M-alto | Alto | C (“falta profundizar control”) | no: ninguna regla cubre el caso |
 | S17 | M-bajo | Bajo | Bajo | M-bajo | E | sí |
-| S19 | Bajo | M-bajo | M-alto | M-bajo | D | sí |
+| S19 | Bajo | M-bajo | M-alto | M-bajo | D | no: ninguna regla cubre el caso (hay una dimensión Bajo y Control es M-alto) |
 
-Lectura operativa que se desprende de estos casos (**inferida, confirmar con la docente**):
+Lectura operativa que se desprende de estos casos (E confirmado por la docente; el resto, pendiente):
 - **Perfil E** se asigna cuando hay al menos tres dimensiones M-bajo/Bajo con Control y Creencias entre
   ellas **y además al menos dos dimensiones en nivel Bajo** (S1, S10, S17 son E; S5 y S7, con una o cero
   dimensiones en Bajo, son D). La plataforma hoy asigna E a S5 y a S7.
 - **Todas las dimensiones M-alto o alto sin cumplir A:** el pilotaje dio B (S4), C (S16) y A (S6).
   La plataforma usa B para todo el grupo; S16 sería la excepción.
 - **Alto en Creencias con el resto bajo/M-bajo:** D con nota aclaratoria (S14).
+- **C con Recursos M-alto y Heurísticas M-bajo, Control y Creencias M-alto:** el pilotaje dio C (S3), aunque la regla pide ambas M-bajo o Bajo.
+- Con la regla de E ya aplicada, la plataforma coincide con el pilotaje en 11 de 16 casos; en 4 (S4, S6, S14, S16) y S19 no hay regla estricta y la plataforma entrega una propuesta, y en S3 da D en vez de C.
 
 Evidencias cualitativas del pilotaje útiles como anclas de P2, P3a y P3b:
 - P2 con descarte de alternativas: “por las cantidades… yo veía que iba bajando la vacía; las otras
