@@ -82,7 +82,7 @@
       ]
     },
     E: {
-      nombre: 'Metacognición frágil',
+      nombre: 'Metacognición incipiente',
       desc: 'Presenta dificultades en varias dimensiones, con poca reflexión, escasa autorregulación y/o creencias poco favorables sobre su capacidad.',
       pasos: [
         'Acompañar de cerca con problemas accesibles que aseguren experiencias de logro.',
@@ -208,7 +208,10 @@
     const altos = v.filter(x => x === 4).length;
     const bajos = v.filter(x => x <= 2).length;
     if (altos >= 2 && lv.con === 4 && lv.sc === 4) return 'A';
-    if (bajos >= 3 && lv.con <= 2 && lv.sc <= 2) return 'E';
+    if (bajos >= 3 && lv.con <= 2 && lv.sc <= 2) {
+      // Criterio del pilotaje hospitalario (confirmado por la investigadora): E exige además al menos dos dimensiones en nivel Bajo; con menos, se asigna D.
+      return v.filter(x => x === 1).length >= 2 ? 'E' : 'D';
+    }
     if (lv.rec >= 3 && lv.heu >= 3 && (lv.con <= 2 || lv.sc <= 2)) return 'B';
     if (lv.con >= 3 && lv.sc >= 3 && lv.rec <= 2 && lv.heu <= 2) return 'C';
     if (v.every(x => x === 2 || x === 3)) return 'D';
