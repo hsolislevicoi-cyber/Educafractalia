@@ -47,7 +47,7 @@
 <div class="nav-label">Próximos módulos</div>
 <button class="nav-item disabled"><span class="num">05</span>Feedback formativo</button>
 <button class="nav-item" data-view="modulo6"><span class="num">06</span>Gráficos</button>
-<button class="nav-item disabled"><span class="num">07</span>Estadísticos I+D</button>
+<button class="nav-item" data-view="modulo7"><span class="num">07</span>Estadísticos I+D</button>
 </nav>
 
 <div class="sidebar-footer">
@@ -422,10 +422,11 @@ Convención sugerida: <code>S01.jpg</code>, <code>S02.jpg</code>... o <code>Nomb
 <div class="value">1–4 · Niveles Destacado a Insuficiente</div>
 </div>
 </header>
+<div id="g6Informes"></div>
 <div id="modulo6Empty">
 <div class="upload-zone" style="cursor:default;">
-<h2 class="upload-title">Primero carga los datos</h2>
-<p class="upload-subtitle">Ve al Módulo 01 y sube el archivo de KoboToolbox.</p>
+<h2 class="upload-title">Primero carga datos o informes</h2>
+<p class="upload-subtitle">Sube el archivo de KoboToolbox en el Módulo 01 o agrega informes HTML ya generados con el botón de arriba.</p>
 <button class="btn btn-primary" data-nav="modulo1">Ir a Carga de datos</button>
 </div>
 </div>
@@ -438,6 +439,44 @@ Convención sugerida: <code>S01.jpg</code>, <code>S02.jpg</code>... o <code>Nomb
 </div>
 <div class="g6-aviso" id="g6Aviso"></div>
 <div class="g6-grid" id="g6Grid"></div>
+</div>
+</section>
+<section class="view" id="view-modulo7">
+<header class="page-header">
+<div class="page-title-group">
+<div class="eyebrow">Módulo 07 · I+D</div>
+<h1 class="page-title">Estadísticos de <span class="accent">investigación</span></h1>
+<p class="page-subtitle">Estadística descriptiva por dimensión, heterogeneidad del aula, calibración metacognitiva (autopercepción frente a desempeño), distribución de perfiles y comparación entre grupos. Usa los datos del Módulo 01 y los informes que agregues.</p>
+</div>
+<div class="page-meta">
+<div class="label">Escala</div>
+<div class="value">1–4 · Media y desviación estándar</div>
+</div>
+</header>
+<div id="e7Informes"></div>
+<div id="modulo7Empty">
+<div class="upload-zone" style="cursor:default;">
+<h2 class="upload-title">Primero carga datos o informes</h2>
+<p class="upload-subtitle">Sube el archivo de KoboToolbox en el Módulo 01 o agrega informes HTML ya generados con el botón de arriba.</p>
+<button class="btn btn-primary" data-nav="modulo1">Ir a Carga de datos</button>
+</div>
+</div>
+<div id="modulo7Main" style="display:none;">
+<div class="g6-bar">
+<label>Curso <select id="e7Curso"></select></label>
+<label>Estadía <select id="e7Estadia"></select></label>
+<label>Comparar por <select id="e7Grupo"><option value="">Sin comparar</option><option value="curso">Curso</option><option value="estadia">Estadía</option></select></label>
+<label>Umbral de calibración <input type="number" id="e7Umbral" value="1" min="0.1" max="3" step="0.1" class="e7-num"></label>
+<label class="e7-chk"><input type="checkbox" id="e7SinProv" checked> Excluir provisorios</label>
+<span class="g6-n" id="e7N"></span>
+</div>
+<div class="g6-bar">
+<label class="e7-chk"><input type="checkbox" id="e7Nombres"> Incluir nombres en el CSV por estudiante</label>
+<button class="btn btn-secondary" id="e7CsvEst">Descargar CSV por estudiante</button>
+<button class="btn btn-secondary" id="e7CsvRes">Descargar CSV de resumen</button>
+</div>
+<div class="g6-aviso" id="e7Aviso"></div>
+<div class="g6-grid" id="e7Out"></div>
 </div>
 </section>
 </main>
@@ -504,6 +543,8 @@ Convención sugerida: <code>S01.jpg</code>, <code>S02.jpg</code>... o <code>Nomb
 <script src="kobo-adapter.js"></script>
 <script src="criterios.js"></script>
 <script src="perfil.js"></script>
+<script src="informes.js"></script>
 <script src="graficos.js"></script>
+<script src="estadisticos.js"></script>
 </body>
 </html>
