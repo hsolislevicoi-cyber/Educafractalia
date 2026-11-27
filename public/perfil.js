@@ -1171,7 +1171,7 @@
     // Datos incrustados para volver a cargar el informe en los módulos 06 y 07 sin regenerarlo.
     const ef = { v: 1, origen: 'datos', id: s.id, nombre: titleCase(s.name), curso: s.curso || '', edad: s.edad ?? null,
       estadia: typeof formatEstadia === 'function' ? formatEstadia(s.estadia) : (s.estadia || ''), aplicador: s.aplicador ? titleCase(s.aplicador) : '', fecha: r.fecha_aplicacion || '',
-      likert: {}, abiertas: {}, score: {}, nivel: {}, preg: {}, perfil: c.perfil || (c.propuesta ? c.propuesta.perfil : null), propuesto: !c.perfil && !!c.propuesta, provisional: !!c.provisional };
+      likert: {}, abiertas: {}, score: {}, nivel: {}, preg: {}, perfil: c.perfil || (c.propuesta ? c.propuesta.perfil : null), propuesto: !c.perfil && !!c.propuesta, provisional: !!c.provisional, feedback: feedbackDe(c) };
     DIMS.forEach(d => { const x = c.dims[d.key]; ef.likert[d.key] = x.likert; ef.abiertas[d.key] = d.open.length ? x.abiertas : null; ef.score[d.key] = x.score; ef.nivel[d.key] = x.nivel; });
     PREGUNTAS.forEach(q => { const p = puntajeAbierta(s, q.key); ef.preg[q.key] = p ? p.v : null; });
     const efJson = JSON.stringify(ef).replace(/</g, '\\u003c');
@@ -1308,5 +1308,5 @@ ${secciones.join('\n')}</body></html>`;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
 
   // Expuesto para pruebas y para integrar con otros módulos
-  window.PerfilIntegral = { criteriosActivos, compute, asignarPerfil, nivelDe, feedbackAuto, refresh, PERFILES, DIMS, PREGUNTAS, NIVEL_ADMIN, ESCUELA, puntajeAbierta, _cache: cache };
+  window.PerfilIntegral = { criteriosActivos, compute, asignarPerfil, nivelDe, feedbackAuto, feedbackPartes, feedbackDe, refresh, PERFILES, DIMS, PREGUNTAS, NIVEL_ADMIN, ESCUELA, puntajeAbierta, _cache: cache };
 })();
