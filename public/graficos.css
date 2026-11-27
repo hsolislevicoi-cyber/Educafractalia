@@ -40,3 +40,13 @@
 .e7-sub { color: #C98840; font-weight: 600; }
 .e7-num { width: 64px; font-family: var(--font-main); font-size: 12.5px; border: 1px solid var(--ef-border); border-radius: var(--radius-sm); padding: 6px 8px; margin-left: 6px; }
 .e7-chk { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Módulo 05 · Feedback formativo */
+.e5-aula { width: 100%; min-height: 210px; font-family: var(--font-main); font-size: 12.5px; line-height: 1.55; border: 1px solid var(--ef-border); border-radius: var(--radius-sm); padding: 10px 12px; box-sizing: border-box; resize: vertical; }
+.e5-est { border: 1px solid var(--ef-border); border-radius: var(--radius-sm); margin: 0 0 8px; background: var(--ef-white); }
+.e5-est > summary { cursor: pointer; padding: 9px 12px; font-size: 12.5px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.e5-est > summary b { color: var(--ef-blue-dark); }
+.e5-tag { font-family: var(--font-mono); font-size: 10.5px; color: var(--ef-gray); }
+.e5-prov { font-size: 10.5px; color: #C98840; border: 1px solid #C98840; border-radius: 999px; padding: 1px 8px; }
+.e5-fb { padding: 0 14px 12px; font-size: 12.5px; line-height: 1.6; white-space: pre-line; }
+.e5-fb .e5-acc { display: flex; gap: 8px; margin-top: 8px; }

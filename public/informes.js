@@ -92,6 +92,8 @@
     r.perfil = pm ? pm[1] : null;
     r.propuesto = /Propuesta/i.test(tx);
     r.provisional = /Informe provisorio/i.test(sec.textContent);
+    const fb = sec.querySelector('.fb p');
+    if (fb) { const cl = fb.cloneNode(true); cl.querySelectorAll('br').forEach(b => b.replaceWith('\n')); r.feedback = cl.textContent.replace(/\n{3,}/g, '\n\n').trim(); }
     return r;
   }
 
@@ -130,7 +132,7 @@
     const dims = {};
     KEYS.forEach(k => { dims[k] = { likert: r.likert[k], abiertas: k === 'sc' ? null : (r.abiertas || {})[k], score: r.score[k], nivel: r.nivel ? r.nivel[k] : nivelDe(r.score[k]) }; });
     return { s: { id: r.id, name: r.nombre, curso: r.curso, edad: r.edad, estadia: r.estadia, importado: true, aplicador: r.aplicador, fecha: r.fecha },
-      c: { dims, provisional: !!r.provisional }, perfil: r.perfil || null, propuesto: !!r.propuesto, preg: Object.assign({}, r.preg), importado: true };
+      c: { dims, provisional: !!r.provisional }, perfil: r.perfil || null, propuesto: !!r.propuesto, feedback: r.feedback || '', preg: Object.assign({}, r.preg), importado: true };
   }
   const registros = () => (memoria || []).slice();
   const filas = () => registros().map(aFila);
