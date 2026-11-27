@@ -22,13 +22,21 @@
   const normTxt = x => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const estLbl = s => s.importado ? (s.estadia || '') : (typeof formatEstadia === 'function' ? formatEstadia(s.estadia) : (s.estadia || ''));
   /* Estudiantes del Módulo 01 más informes cargados (los del Módulo 01 tienen prioridad si coinciden). */
-  function importados() {
-    const I = window.Informes; if (!I) return [];
-    const ex = new Set(students().map(s => normTxt(s.id) + '|' + normTxt(s.name)));
-    return I.filas().filter(f => !ex.has(normTxt(f.s.id) + '|' + normTxt(f.s.name)));
-  }
+  const llave = f => normTxt(f.s.id) + '|' + normTxt(f.s.name);
+  /* Si un estudiante está en el Módulo 01 y también en un informe cargado, se usa el del Módulo 01,
+     salvo que ese esté provisorio y el informe no: entonces gana el informe (ya evaluado). */
   function todos() {
-    const filas = calcular(students()).concat(importados());
+    const base = calcular(students());
+    const inf = window.Informes ? window.Informes.filas() : [];
+    const porLlave = new Map(inf.map(f => [llave(f), f]));
+    const usados = new Set();
+    const filas = base.map(d => {
+      const r = porLlave.get(llave(d));
+      if (r && d.c.provisional && !r.c.provisional) { usados.add(llave(d)); return r; }
+      if (r) usados.add(llave(d));
+      return d;
+    });
+    inf.forEach(f => { if (!usados.has(llave(f))) filas.push(f); });
     filas.forEach(d => { d.curso = d.s.curso || ''; d.estadia = estLbl(d.s); });
     return filas;
   }
